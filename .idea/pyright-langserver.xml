@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="com.insyncwithfoo.pyrightls.configuration.project.ConfigurationService">
+    <option name="diagnosticMode" value="WORKSPACE" />
+    <option name="projectExecutable" value="C:\Users\Tom\anaconda3\envs\python_control_env\Scripts\pyright-langserver.exe" />
+  </component>
+</project>
