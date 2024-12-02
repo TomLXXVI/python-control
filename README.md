@@ -1,4 +1,4 @@
-A(nother) Python package about Control Theory.
+# A(nother) Python package about Control Theory.
 
 This package was written while studying the very good book **Control Systems Engineering**, Eight Edition (EMEA Edition) written by **Norman S. Nise**. The reason I began to write this package, was because I don't have Matlab.
 It mainly uses [Sympy](https://www.sympy.org/en/index.html) and [Python Control System Library](https://github.com/python-control/python-control), but, of course, also [Numpy](https://numpy.org/) and [Scipy](https://scipy.org/). 
