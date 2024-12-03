@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["python_control*"]
+namespaces = false
+
+[project]
+name = "python_control"
+version = "0.0.1"
+authors = [{name= "Tom Christiaens", email = "mailbox.tom.chr@gmail.com"}]
+description="A(nother) Python Package about Control Theory"
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">= 3.11"
+dependencies = [
+    "sympy~=1.13.3",
+    "scipy~=1.14.1",
+    "numpy~=2.1.2",
+    "control~=0.10.1",
+    "matplotlib~=3.9.2",
+    "pint~=0.24.3"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3.11"
+]

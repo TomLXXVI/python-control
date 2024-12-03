@@ -68,7 +68,24 @@ class Path(list[Branch]):
 
 
 class Loop(Path):
-    pass
+
+    def __eq__(self, other: 'Loop') -> bool:
+        if len(self) != len(other):
+            return False
+        else:
+            return all([
+                True if branch in self else False
+                for branch in other
+            ])
+
+
+class LoopList(list[Loop]):
+
+    def __contains__(self, loop: Loop) -> bool:
+        for loop_ in self:
+            if loop_ == loop:
+                return True
+        return False
 
 
 class SignalFlowGraph:
@@ -96,7 +113,7 @@ class SignalFlowGraph:
         self.end_node = self.nodes[end_node_id]
         self._paths: list[Path] = []
         self._forward_paths: list[Path] | None = None
-        self._loops: list[Loop] | None = None
+        self._loops: LoopList | None = None
 
     def add_branch(self, new_br: Branch) -> None:
         """
@@ -141,11 +158,15 @@ class SignalFlowGraph:
                         self._recursive_path_search(next_node, new_path)
                     else:
                         return
-            branch = node.leaving_branches[0]
-            if branch not in path:
-                path.append(branch)
-                node = self.nodes[path[-1].end_node_id]
-            else:
+            try:
+                branch = node.leaving_branches[0]
+                if branch not in path:
+                    path.append(branch)
+                    node = self.nodes[path[-1].end_node_id]
+                else:
+                    return
+            except IndexError:
+                # current node is the end node of the signal flow graph
                 return
 
     @property
@@ -185,16 +206,20 @@ class SignalFlowGraph:
         """
         if not self._paths: self._search_paths()
         if self._loops is None:
-            self._loops = []
+            self._loops = LoopList()
             for path in self._paths:
                 reversed_path = path[-1::-1]
                 i = 1
-                while reversed_path[i].start_node_id != path[-1].end_node_id:
-                    i += 1
-                loop = reversed_path[:i + 1]
-                loop = Loop(loop[-1::-1])
-                if loop not in self._loops:
-                    self._loops.append(loop)
+                try:
+                    while reversed_path[i].start_node_id != path[-1].end_node_id:
+                        i += 1
+                    loop = reversed_path[:i + 1]
+                    loop = Loop(loop[-1::-1])
+                    if loop not in self._loops:
+                        self._loops.append(loop)
+                except IndexError:
+                    # path is not a loop
+                    continue
         return self._loops
 
     @staticmethod

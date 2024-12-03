@@ -22,7 +22,7 @@ class FirstOrderSystem(TransferFunction):
 
     @property
     def tau(self) -> Quantity:
-        """Returns the time constant of the unit step response."""
+        """Returns the time constant."""
         p = self.poles_control[0]
         tau = abs(1 / p)
         return Q_(tau, 's')

@@ -457,7 +457,7 @@ class TransferFunction:
         time values of the points, and the second element is a Numpy array with
         the system's output values.
         """
-        time, output = sp_plot.step_response_numerical_data(
+        time, output = sp_plot.impulse_response_numerical_data(
             self._sp_tf,
             prec=kwargs.pop('prec', 8),
             lower_limit=kwargs.pop('lower_limit', 0),
