@@ -1,7 +1,7 @@
 """
 Implementation of the class `TransferFunction` which wraps both the Sympy and
-the "Python Control Systems Library" (PCSL) implementations of the transfer
-function.
+the "Python Control Systems Library" (PCSL) implementations of a single-block
+transfer function.
 """
 from __future__ import annotations
 from collections.abc import Sequence
@@ -26,12 +26,12 @@ Zeros = namedtuple('Zeros', ('from_sympy', 'from_control'))
 
 class TransferFunction:
     """
-    Implements properties and methods that apply to the transfer function of
-    a system:
+    Implements properties and methods that can be applied to a transfer function
+    of a single-block system:
                             G(s) = C(s) / R(s)
     where:
-    -   C(s), the Laplace transform of the output function
-    -   R(s), the Laplace transform of the input function
+    C(s) is the Laplace transform of the output signal leaving the system, and
+    R(s) is the Laplace transform of the input signal entering the system.
     """
     def __init__(self, expr: sp.Expr | str | float | int) -> None:
         """
@@ -76,18 +76,20 @@ class TransferFunction:
         den: Sequence[float]
     ) -> TransferFunction:
         """
-        Creates a `TransferFunction` object when the coefficients of numerator
-        and denominator of the transfer function (or differential equation) are
-        given.
+        Creates a `TransferFunction` object when the coefficients of the
+        numerator and the denominator of the transfer function (or differential
+        equation) are given.
         
         Parameters
         ----------
         num:
-            Sequence of the polynomial coefficients of the numerator (or rhs of
-            the differential equation), from highest to lowest order.
+            Sequence of the polynomial coefficients of the numerator (i.e. the
+            right-hand side or input side of the differential equation) ordered
+            from highest to lowest degree.
         den:
-            Sequence of polynomial coefficients of the denominator (or lhs of
-            the differential equation), ordered from highest to lowest order.
+            Sequence of the polynomial coefficients of the denominator (i.e. the
+            left-hand side or output side of the differential equation) ordered
+            from highest to lowest degree.
         """
         num = cls._create_poly_expr(num)
         den = cls._create_poly_expr(den)
@@ -105,7 +107,7 @@ class TransferFunction:
     @staticmethod
     def _create_poly_expr(coeff: Sequence[float]) -> str:
         """
-        Transform the sequence of polynomial coefficients into a string
+        Transforms the sequence of polynomial coefficients into a string
         expression.
         """
         poly_str = []
@@ -234,7 +236,7 @@ class TransferFunction:
         return Denominator(den_poly, den_arr)
 
     @property
-    def poles_control(self) -> list[complex]:
+    def poles_pcsl(self) -> list[complex]:
         """
         Returns the poles of the transfer function using PCSL.
         """
@@ -256,7 +258,7 @@ class TransferFunction:
         """
         poles_sympy = self.poles_sympy
         try:
-            poles_control = self.poles_control
+            poles_control = self.poles_pcsl
         except AttributeError:
             poles_control = None
         if poles_control is not None:
@@ -265,7 +267,7 @@ class TransferFunction:
             return poles_sympy
 
     @property
-    def zeros_control(self) -> list[complex]:
+    def zeros_pcsl(self) -> list[complex]:
         """
         Returns the zeros of the transfer function using PCSL.
         """
@@ -274,7 +276,7 @@ class TransferFunction:
     @property
     def zeros_sympy(self) -> list[complex]:
         """
-        Returns the zeros of the transfer function using the Sympy library.
+        Returns the zeros of the transfer function using Sympy.
         """
         zeros = self._sp_tf.zeros()
         zeros = [complex(zero) for zero in zeros]
@@ -287,7 +289,7 @@ class TransferFunction:
         """
         zeros_sympy = self.zeros_sympy
         try:
-            zeros_control = self.zeros_control
+            zeros_control = self.zeros_pcsl
         except AttributeError:
             zeros_control = None
         if zeros_control is not None:
@@ -298,7 +300,8 @@ class TransferFunction:
     @property
     def dc_gain(self) -> sp.Expr | float:
         """
-        Returns the dc gain of the transfer function.
+        Returns the dc gain of the transfer function, i.e. the total gain
+        when s = 0.
         """
         try:
             return float(self.as_sympy.dc_gain())
@@ -308,7 +311,7 @@ class TransferFunction:
     @property
     def gain(self) -> float:
         """
-        Returns the gain K of the transfer function.
+        Returns the gain factor K of the transfer function.
         """
         dc_gain = self.dc_gain
         T = self
@@ -326,7 +329,7 @@ class TransferFunction:
         Indicates whether the system is stable or not.
         """
         if self._ct_tf is not None:
-            if all(p.real < 0 for p in self.poles_control):
+            if all(p.real < 0 for p in self.poles_pcsl):
                 return True
             return False
         return True
@@ -336,8 +339,22 @@ class TransferFunction:
 
     def steady_state_error(self, R: sp.Expr) -> sp.Number:
         """
-        Returns the steady-state error between the input signal `R` and the
-        output.
+        Returns the steady-state error between the input `R` and the output `C`
+        of the system.
+
+        Parameters
+        ----------
+        R:
+            Sympy expression of the input signal entering the single-block
+            system.
+
+        Notes
+        -----
+        The error signal E is defined as E = R - C with C = T * R where T is the
+        transfer function of the single-block system. So, the error signal E can
+        also be written as E = R - T * R = (1 - T) * R.
+        The steady-state error is then, using Sympy syntax, defined as:
+        e_oo = limit(s * E, s, 0).
         """
         E = (1 - self._sp_expr) * R
         e_oo = sp.limit(s * E, s, 0)
@@ -348,8 +365,8 @@ class TransferFunction:
         input_: LaplaceTransform | sp.Expr | str
     ) -> LaplaceTransform:
         """
-        Returns the Laplace transform of the output function when the Laplace
-        transform of the input function is given.
+        Returns the Laplace transform of the output signal when the Laplace
+        transform of the input signal is given.
         """
         if isinstance(input_, str):
             input_ = sp.parse_expr(input_)
@@ -453,9 +470,10 @@ class TransferFunction:
 
         Returns
         -------
-        A 2-element tuple of which the first element is a Numpy array with the
-        time values of the points, and the second element is a Numpy array with
-        the system's output values.
+        time_values:
+            Numpy array with the time values of the points (abscissa)
+        output_values:
+            Numpy array with the system's output values (ordinate).
         """
         time, output = sp_plot.impulse_response_numerical_data(
             self._sp_tf,
@@ -518,9 +536,10 @@ class TransferFunction:
 
         Returns
         -------
-        A 2-element tuple of which the first element is a Numpy array with the
-        time values of the points, and the second element is a Numpy array with
-        the system's output values.
+        time_values:
+            Numpy array with the time values of the points (abscissa)
+        output_values:
+            Numpy array with the system's output values (ordinate).
         """
         time, output = sp_plot.step_response_numerical_data(
             self._sp_tf,
@@ -573,15 +592,16 @@ class TransferFunction:
         **kwargs
     ) -> tuple[np.ndarray, np.ndarray]:
         """
-        Returns the numerical values of the points in the ramp response plot of
-        the system.
+        Returns the coordinates of points on the ramp response of the transfer
+        function. The ramp input signal is $k * t * u(t)$ or $k/s**2$ with $k$
+        the slope.
 
         The ramp function is a straight line through the origin.
 
         Parameters
         ----------
         slope:
-            The positive slope of the input ramp function.
+            Positive slope of the ramp input signal.
         kwargs:
             prec: 8
                 Decimal point precision for the coordinates.
@@ -592,9 +612,10 @@ class TransferFunction:
 
         Returns
         -------
-        A 2-element tuple of which the first element is a Numpy array with the
-        time values of the points, and the second element is a Numpy array with
-        the system's output values.
+        time_values:
+            Numpy array with the time values of the points (abscissa)
+        output_values:
+            Numpy array with the system's output values (ordinate).
         """
         inv_L = self.response(slope / s ** 2).inverse()
         t_min = int(kwargs.pop('lower_limit', 0))
@@ -612,7 +633,7 @@ class TransferFunction:
         kwargs
         ------
         slope: 1.0
-            The positive slope of the input ramp function.
+            Positive slope of the ramp input signal.
         prec: 8
             Decimal point precision for the coordinates.
         lower_limit: 0
@@ -643,27 +664,36 @@ class TransferFunction:
             **kwargs
         )
 
-    def parabola_response(self, **kwargs) -> tuple[np.ndarray, np.ndarray]:
+    def parabola_response(
+        self,
+        slope: float = 1.0,
+        **kwargs
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
-        Returns the numerical values of the points in the parabola response
-        plot of the system.
+        Returns the coordinates of points on the parabola response plot of the
+        system. The parabola input signal is $0.5 * k * t**2 * u(t)$ or $k/s**3$
+        with $k$ the slope.
 
-        kwargs
-        ------
-        prec: 8
-            Decimal point precision for the coordinates.
-        lower_limit: 0
-            Lower time limit of the plot range in seconds.
-        upper_limit: 10
-            Upper time limit of the plot range in seconds.
+        Parameters
+        ----------
+        slope:
+            Positive slope of the ramp input signal.
+        kwargs:
+            prec: 8
+                Decimal point precision for the coordinates.
+            lower_limit: 0
+                Lower time limit of the plot range.
+            upper_limit: 10
+                Upper time limit of the plot range.
 
         Returns
         -------
-        A 2-element tuple of which the first element is a Numpy array with the
-        time values of the points, and the second element is a Numpy array with
-        the system's output values.
+        time_values:
+            Numpy array with the time values of the points (abscissa)
+        output_values:
+            Numpy array with the system's output values (ordinate).
         """
-        inv_L = self.response(1 / s**3).inverse()
+        inv_L = self.response(slope / s ** 3).inverse()
         t_min = kwargs.pop('lower_limit', 0)
         t_max = kwargs.pop('upper_limit', 10)
         t_num = (t_max - t_min) * 50
@@ -677,6 +707,8 @@ class TransferFunction:
 
         kwargs
         ------
+        slope: 1.0
+            Positive slope of the parabola input signal.
         prec: 8
             Decimal point precision for the coordinates.
         lower_limit: 0
@@ -750,12 +782,14 @@ def create_time_delay(
         Amount of time delay in seconds.
     n:
         The time delay is implemented using a Padé approximation. Parameter
-        `n` is the degree of the denominator of the approximation. See
-        PCSL, `control.pade` for more information about this function.
+        `n` is the degree of the denominator of the approximation. See function
+        `control.pade` in the docs of Python Control Systems Library (PCSL)
+        for some more information about this function.
     numdeg:
-        If `numdeg` is `None`, numerator degree equals denominator degree.
-        If `numdeg` >= 0, specifies degree of numerator. If `numdeg` < 0,
-        numerator degree is `n + numdeg`.
+        If `numdeg` is `None`, the degree of the numerator will equal the degree
+        of the denominator. If `numdeg` >= 0, it specifies the degree of the
+        numerator. If `numdeg` < 0, it specifies the numerator degree as
+        `n + numdeg`.
     """
     num, den = ct.pade(T, n, numdeg)
     tf = TransferFunction.from_coefficients(num, den)

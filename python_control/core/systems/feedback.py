@@ -15,45 +15,43 @@ class FeedbackSystem:
 
     def __init__(
         self,
-        G1: TransferFunction,
-        G2: TransferFunction | None = None,
+        G_c: TransferFunction,
+        G_p: TransferFunction | None = None,
         H: TransferFunction | None = None,
         name: str = ''
     ) -> None:
         """
-        Creates a `FeedbackControlSystem`.
+        Creates a (negative) `FeedbackSystem` instance.
 
         Parameters
         ----------
-        G1:
-            Transfer function of the controller (if parameter G2 is not None),
-            or the forward transfer function of the closed-loop feedback system.
-        G2: optional
+        G_c:
+            Transfer function of the controller if parameter G_p is not None,
+            else the forward transfer function of the closed-loop feedback
+            system.
+        G_p: optional
             Transfer function of the plant.
         H: optional
-            Feedback transfer function. If None, unity feedback is assumed.
+            Feedback transfer function. If None, unity-feedback is assumed.
         name: optional
             A name to identify the system, e.g. in the legend of a plot.
         """
         self.name = name
-        self.G1 = G1
-        self.G2 = G2
+        self.G_c = G_c
+        self.G_p = G_p
         self.H = H
-        if self.G2 is None: self.G2 = TransferFunction(1)
+        if self.G_p is None: self.G_p = TransferFunction(1)
         if self.H is None: self.H = TransferFunction(1)
-
-        # Forward transfer function of equivalent unity-feedback system.
-        self.G = self.G1 * self.G2 / (1 + self.G1 * self.G2 * (self.H - 1))
-
-        # Transfer function E(s) / R(s) with error E(s) defined as R(s) - C(s):
+        # Forward transfer function of the equivalent unity-feedback system.
+        self.G = self.G_c * self.G_p / (1 + self.G_c * self.G_p * (self.H - 1))
+        # Transfer function E(s)/R(s) with error E(s) defined as R(s) - C(s):
         T_ER = 1 / (1 + self.G)
         self.T_ER = T_ER.expr
-
-        # Transfer function E(s) / D(s) with D(s) a disturbance signal:
-        T_ED = self.G / (G1 * (1 + self.G))
+        # Transfer function E(s)/D(s) with D(s) a disturbance input signal to
+        # the plant of the feedback system:
+        T_ED = self.G / (G_c * (1 + self.G))
         self.T_ED = T_ED.expr
-
-        # Unit step response of feedback system in time domain:
+        # Unit step response of the feedback system in the time domain:
         self.u, self.u_oo = self._unit_step_time_response()
 
     @property
@@ -62,7 +60,7 @@ class FeedbackSystem:
         Returns the open-loop transfer function (loop gain) of the feedback
         control system.
         """
-        return self.G1 * self.G2 * self.H
+        return self.G_c * self.G_p * self.H
 
     @property
     def closed_loop(self) -> TransferFunction:
@@ -73,25 +71,37 @@ class FeedbackSystem:
         return self.G.feedback(TransferFunction(1))
 
     @property
-    def Kp(self) -> float:
-        """Position static error constant."""
+    def Kp(self) -> float | sp.Expr:
+        """Position error constant."""
         Kp = sp.limit(self.G.expr, s, 0)
-        return float(Kp)
+        try:
+            return float(Kp)
+        except TypeError:
+            return Kp
 
     @property
-    def Kv(self) -> float:
-        """Velocity static error constant."""
+    def Kv(self) -> float | sp.Expr:
+        """Velocity error constant."""
         Kv = sp.limit(s * self.G.expr, s, 0)
-        return float(Kv)
+        try:
+            return float(Kv)
+        except TypeError:
+            return Kv
 
     @property
-    def Ka(self) -> float:
-        """Acceleration static error constant."""
+    def Ka(self) -> float | sp.Expr:
+        """Acceleration error constant."""
         Ka = sp.limit(s ** 2 * self.G.expr, s, 0)
-        return float(Ka)
+        try:
+            return float(Ka)
+        except TypeError:
+            return Ka
 
     @property
     def static_error_constants(self) -> StaticErrorConstants:
+        """
+        Returns the static error constants in a named tuple `StaticErrorConstants`.
+        """
         return StaticErrorConstants(
             Kp=self.Kp,
             Kv=self.Kv,
@@ -101,23 +111,23 @@ class FeedbackSystem:
     @property
     def system_type(self) -> str:
         """
-        Returns the system type, which is equivalent to the number of pure
-        integrations in the forward path. If more than two integrations are
+        Returns the system type, which corresponds with the number of pure
+        integrations in the forward path. If there are more than two integrations
         in the forward path, 'None' is returned, which means that the system
         type has not been determined.
         """
         if self.Kv == 0 and self.Ka == 0:
             return 'type_0'
-            # no integrations in the forward path, i.e., constant position
+            # no integrations in the forward path, constant position error
         elif self.Kp == sp.oo and self.Ka == 0:
             return 'type_1'
-            # one integration in the forward path, i.e., constant velocity
+            # one integration in the forward path, constant velocity error
         elif self.Kp == sp.oo and self.Kv == sp.oo:
             return 'type_2'
-            # two integrations in the forward path, i.e., constant acceleration
+            # two integrations in the forward path, constant acceleration error
         else:
             return 'None'
-            # undetermined
+            # system type undetermined
 
     def steady_state_error(
         self,
@@ -125,31 +135,29 @@ class FeedbackSystem:
         D: sp.Expr | LaplaceTransform | None = None
     ) -> SteadyStateError:
         """
-        Returns the steady-state error of the closed-loop system for the given
-        input signal R(s) and/or disturbance signal D(s).
+        Returns the steady-state error of the feedback system for the given
+        reference input signal R(s) and/or disturbance input signal D(s).
 
         Notes
         -----
-        Test input signals could be e.g. a step, ramp, or parabola.
-        - standard step: u(t) [1 / s]
-        - standard ramp: t * u(t) [1 / s**2]
-        - standard parabola: 0.5 * t**2 * u(t) [1 / s**3]
+        Test-input signals could be e.g. a step, ramp, or parabola function.
+        - Laplace transform of step input (position input) u(t):
+            1 / s
+        - Laplace transform of ramp input (velocity input) t * u(t):
+            1 / s**2
+        - Laplace transform of parabola input (acceleration input) 0.5 * t**2 * u(t):
+            1 / s**3
         """
-        if isinstance(R, LaplaceTransform):
-            R = R.expr
-        if isinstance(D, LaplaceTransform):
-            D = D.expr
-
+        if isinstance(R, LaplaceTransform): R = R.expr
+        if isinstance(D, LaplaceTransform): D = D.expr
         if R is not None:
             E_R = self.T_ER * R
         else:
             E_R = None
-
         if self.T_ED is not None and D is not None:
             E_D = self.T_ED * D
         else:
             E_D = None
-
         E = None
         if E_R is not None:
             E = E_R
@@ -186,54 +194,61 @@ class FeedbackSystem:
         else:
             return None
 
-    def _unit_step_time_response(self) -> tuple[InverseLaplaceTransform, float | None]:
+    def _unit_step_time_response(self) -> tuple[InverseLaplaceTransform | None, float | None]:
         """
-        Calculates the unit step response of the feedback system in the time
+        Calculates the unit-step response of the feedback system in the time
         domain.
 
         Returns
         -------
         time_response:
-            `InverseLaplaceTransform` object holding the unit step response
+            `InverseLaplaceTransform` object holding the unit-step response
             of the feedback system in the time domain.
         steady_state_value:
-            The value of the unit step response when time goes to infinity.
+            The value of the unit-step response when time goes to infinity.
             If the system is unstable, `None` is returned.
         """
-        laplace_response = self.closed_loop.response(1 / s)
-        time_response = laplace_response.inverse()
-        steady_state_value = sp.limit(time_response.expr, t, sp.oo)
-        try:
-            steady_state_value = float(steady_state_value)
-        except TypeError:
-            # happens if the system is not stable
-            steady_state_value = None
-        return time_response, steady_state_value
+        if self.closed_loop._ct_tf is not None:
+            laplace_response = self.closed_loop.response(1 / s)
+            time_response = laplace_response.inverse()
+            steady_state_value = sp.limit(time_response.expr, t, sp.oo)
+            try:
+                steady_state_value = float(steady_state_value)
+            except TypeError:
+                # happens if the system is not stable
+                steady_state_value = None
+            return time_response, steady_state_value
+        return None, None
 
     @property
-    def peak_time(self):
+    def peak_time(self) -> float | None:
         """
-        Returns the peak time of the closed-loop unit step response.
+        Returns the peak time of the closed-loop unit-step response.
 
+        Notes
+        -----
         The peak time is defined as the time required to reach the first or
         maximum peak.
         """
-        def _objective(t: float) -> float:
-            uval = self.u.evaluate(t)
-            return -uval
+        if self.u is not None:
+            def _objective(t: float) -> float:
+                uval = self.u.evaluate(t)
+                return -uval
 
-        t_min = 0.0
-        t_max = np.max(1 / np.abs(self.closed_loop.poles))
-        res = minimize_scalar(_objective, bounds=(t_min, t_max))
-        t_peak = res.x
-        return t_peak
+            t_min = 0.0
+            t_max = np.max(1 / np.abs(self.closed_loop.poles))
+            res = minimize_scalar(_objective, bounds=(t_min, t_max))
+            t_peak = res.x
+            return t_peak
 
     @property
     def rise_time(self) -> float | None:
         """
-        Returns the rise time of the closed-loop unit step response.
+        Returns the rise time of the closed-loop unit-step response.
         If the system is unstable, `None` is returned.
 
+        Notes
+        -----
         The rise time is defined as the time required for the waveform to go
         from 0.1 of the final value to 0.9 of the final value.
         """
@@ -251,9 +266,11 @@ class FeedbackSystem:
     @property
     def settling_time(self) -> float | None:
         """
-        Returns the estimated settling time of the closed-loop unit step
+        Returns the estimated settling time of the closed-loop unit-step
         response. If the system is unstable, `None` is returned.
 
+        Notes
+        -----
         The settling time is defined as the time required for the transient's
         damped oscillations to reach and stay within +/- 2% of the steady-state
         value.
@@ -278,8 +295,8 @@ class FeedbackSystem:
     @property
     def percent_overshoot(self) -> float:
         """
-        Returns the percent overshoot of the closed-loop unit step response if
-        the system is stable else returns `None`.
+        Returns the percent overshoot of the closed-loop unit-step response if
+        the system is stable, else returns `None`.
 
         Percent overshoot is defined as the height the waveform overshoots the
         steady-state or final value at the peak time, expressed as a percentage
@@ -308,8 +325,8 @@ def is_second_order_approx(feedback_system: FeedbackSystem):
     Checks whether the feedback system can be approximated as a second-order
     system.
     """
-    poles = set(feedback_system.closed_loop.poles_control)
-    zeros = feedback_system.closed_loop.zeros_control
+    poles = set(feedback_system.closed_loop.poles_pcsl)
+    zeros = feedback_system.closed_loop.zeros_pcsl
     dominant_poles = [pole for pole in poles if pole.imag != 0]
     other_poles = list(poles.difference(dominant_poles))
 

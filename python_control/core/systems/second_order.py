@@ -79,8 +79,8 @@ class SecondOrderSystem(TransferFunction):
     def omega_damped(self) -> float:
         """
         Returns the damped frequency of oscillation (i.e., the magnitude of
-        the imaginary part of the pole).
-        Returns NaN when the system is overdamped (damping ratio > 1).
+        the imaginary part of the pole). Returns NaN when the system is
+        overdamped (damping ratio > 1).
         """
         if self.zeta <= 1.0:
             return self.omega_nat * math.sqrt(1 - self.zeta ** 2)

@@ -1,3 +1,33 @@
+"""
+Implementation of Mason's rule to retrieve the input-output transfer function
+from the signal-flow graph representation (or block diagram) of a system.
+
+A signal-flow graph is an alternative notation to the block diagram.
+Transfer functions (blocks in the block diagram) are represented by arrows in
+the signal-flow graph, which are called the branches of the graph. The arrow of
+each branch points in the direction that the input signal is transferred to the
+output of the branch. The signals are represented by dots, which are called the
+nodes of the graph.
+
+A signal-flow graph is represented by the `SignalFlowGraph` class. To build an
+a signal-flow graph (i.e. an instance of class `SignalFlowGraph`) branches need
+to be added. A branch is represented by the class `Branch` (which is also an
+internal class of the `SignalFlowGraph` class). To define a branch, you must
+give the branch a name, pass its transfer function (which can also be a Sympy
+expression), and identify its start node and its end node.
+Once all the branches are added to the signal-flow graph, the transfer function
+will be available through the property `transfer_function` of the
+`SignalFlowGraph` instance.
+
+IMPORTANT NOTES!
+Between a summing junction and a pick-off point a "dummy branch" must be added
+to be sure to get the correct transfer function of the system. A "dummy branch"
+has a transfer function equal to one (`TransferFunction(1)` or, when working
+symbolically, `sympy.Integer(1)`).
+
+When a branch is a negative feedback branch, its transfer function must be
+preceded with a minus sign.
+"""
 import itertools
 import sympy as sp
 from .transfer_function import TransferFunction
@@ -26,6 +56,25 @@ class Branch:
         end_node_id: str,
         feedback: bool = False
     ) -> None:
+        """Creates a `Branch` object.
+
+        Parameters
+        ----------
+        name:
+            Identifies the branch in the signal-flow graph.
+        tf: sp.Function | sp.Integer | TransferFunction
+            Transfer function of the branch. In case of a symbolic analysis,
+            Sympy `Function` and `Integer` can be used to define the transfer
+            function (e.g. sympy.Function('G3')(s), sympy.Integer(1)).
+        start_node_id: str
+            Identifies the start node of the branch.
+        end_node_id:
+            Identifies the end node of the branch.
+        feedback:
+            If `True` indicates that the branch is pointing back to the start
+            node of the system's signal-flow graph. In case of negative feedback
+            a minus sign must precede the transfer function.
+        """
         self.name = name
         self.tf = tf
         self.start_node_id = start_node_id
@@ -117,7 +166,7 @@ class SignalFlowGraph:
 
     def add_branch(self, new_br: Branch) -> None:
         """
-        Adds a new branch to the graph.
+        Adds a new `Branch` instance to the signal-flow graph.
         """
         br = self.branches.setdefault(new_br.name, new_br)
         if br is not new_br:

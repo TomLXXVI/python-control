@@ -57,7 +57,7 @@ def get_dominant_poles(
     damping_ratio: float = 1.0
 ) -> tuple[complex, complex]:
     """Returns the required location of the dominant poles in the complex plane
-    based on the transient response requirements.
+    based on transient response requirements.
 
     Parameters
     ----------

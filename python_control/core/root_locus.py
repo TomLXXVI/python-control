@@ -13,15 +13,16 @@ from .symbols import s, K
 @dataclass
 class Vector:
     """
-    Class that encapsulates the attributes of the vector representation of
-    a complex number.
+    Class that encapsulates attributes of the vector representation of a complex
+    number.
 
     Attributes
     ----------
     magnitude:
-        The length of the vector.
+        Length of the vector.
     angle:
-        The angle of the vector with the horizontal real axis in degrees.
+        Angle of the vector in degrees measured from the horizontal, positive
+        real axis.
     real:
         Component of the vector on the real axis (i.e., the real part of the
         complex number).
@@ -29,7 +30,7 @@ class Vector:
         Component of the vector on the vertical imaginary axis (i.e., the
         imaginary part of the complex number).
     complex number:
-        The actual complex number that is represented by the vector.
+        The actual complex number represented by the vector.
     """
     magnitude: float | None = None
     angle: float | None = None
@@ -59,24 +60,14 @@ class Vector:
 
 class TransferFunctionVector:
     """
-    Given a transfer function and a "test point" *s* in the complex plane, the
-    result of the transfer function at that point *s* can be calculated, which
-    will also be a complex number, that can be represented by a vector in the
-    complex plane. Hence the name of the class: `TransferFunctionVector`.
+    Given a transfer function and a point $s_i$ in the complex plane, the value
+    of the transfer function at that point $s_i$ can be calculated, which is
+    also a complex number that can be represented as a vector in the complex
+    plane. Hence the name of this class.
 
-    Given a "test point" *s* in the complex plane and only using the zeros and
-    poles of the open-loop transfer function of a feedback system, it is
-    possible to calculate the magnitude and angle of the open-loop transfer
-    function vector (this implies that we don't need to know an exact value for
-    the gain K to be able to determine the vector).
-
-    If for a given "test point" *s* in the complex plane, the angle of the
-    open-loop transfer function vector is an odd multiple of 180°, then the
-    "test point" *s* can be a pole of the closed-loop transfer function of the
-    feedback system depending on the value of the gain *K*.
-    To determine the value of the gain *K* for which the "test point" *s* is
-    actually a pole of the closed-loop transfer function, the inverse of the
-    magnitude of the open-loop transfer function vector is taken.
+    It is important to note that the gain $K$ of the transfer function is ignored.
+    The magnitude and the angle of the transfer function vector are solely
+    determined by the poles and zeros of the transfer function.
     """
     def __init__(self, GH: TransferFunction):
         """
@@ -85,7 +76,8 @@ class TransferFunctionVector:
         Parameters
         ----------
         GH:
-            The open-loop transfer function of a feedback system.
+            The open-loop transfer function of a feedback system (without
+            open-loop gain K).
         """
         self.GH = GH
         self._p: complex | None = None
@@ -93,16 +85,16 @@ class TransferFunctionVector:
     @property
     def point(self) -> complex:
         """
-        Returns the point for which the vector of the transfer function is to be
-        calculated.
+        Returns the selected point in the complex plane for which the vector of
+        the transfer function is calculated.
         """
         return self._p
 
     @point.setter
     def point(self, p: complex) -> None:
         """
-        Sets the point for which the vector of the transfer function is to be
-        calculated.
+        Sets the point in the complex plane for which the vector of the transfer
+        function is to be calculated.
         """
         self._p = p
 
@@ -110,38 +102,31 @@ class TransferFunctionVector:
     def zero_vectors(self) -> list[Vector]:
         """
         Determines the vectors between the zeros of the transfer function and
-        the given point on the complex plane.
+        the selected point in the complex plane.
         """
-        zero_vectors = [
-            Vector(
-                real=self._p.real - zero.real,
-                imag=self._p.imag - zero.imag
-            )
-            for zero in self.GH.zeros_sympy
-        ]
+        zero_vectors = [Vector(
+            real=self._p.real - zero.real,
+            imag=self._p.imag - zero.imag
+        ) for zero in self.GH.zeros_sympy]
         return zero_vectors
 
     @property
     def pole_vectors(self) -> list[Vector]:
         """
         Determines the vectors between the poles of the transfer function and
-        the given point on the complex plane.
+        the selected point in the complex plane.
         """
-        pole_vectors = [
-            Vector(
-                real=self._p.real - pole.real,
-                imag=self._p.imag - pole.imag
-            )
-            for pole in self.GH.poles_sympy
-        ]
+        pole_vectors = [Vector(
+            real=self._p.real - pole.real,
+            imag=self._p.imag - pole.imag
+        ) for pole in self.GH.poles_sympy]
         return pole_vectors
 
     @property
     def magnitude(self) -> float:
         """
-        Determines the magnitude of the transfer function vector as seen
-        from the origin of the complex plane (i.e., the start point of the
-        transfer function vector is the origin of the complex plane).
+        Returns the magnitude of the transfer function vector corresponding with
+        the selected point in the complex plane.
         """
         num = math.prod(
             abs(zero_vector.complex_number)
@@ -160,8 +145,9 @@ class TransferFunctionVector:
     @property
     def angle(self) -> float:
         """
-        Determines the angle in degrees of the transfer function vector with
-        respect to the horizontal, real axis of the complex plane.
+        Returns the angle in degrees of the transfer function vector
+        corresponding with the selected point in the complex plane. This angle
+        is measured from the horizontal, positive real axis of the complex plane.
         """
         zero_term = sum(
             math.degrees(cmath.phase(zero_vector.complex_number))
@@ -177,7 +163,8 @@ class TransferFunctionVector:
     @property
     def vector(self) -> Vector:
         """
-        Returns the transfer function vector as a `Vector` object.
+        Returns the transfer function vector corresponding with the selected
+        point in the complex plane as `Vector` object.
         """
         vector = Vector(self.magnitude, self.angle)
         return vector
@@ -185,22 +172,42 @@ class TransferFunctionVector:
     @property
     def gain(self) -> float:
         """
-        Returns the gain of the transfer function vector, being the factor
-        with which the magnitude of the transfer function vector must be
-        multiplied to get 1.
+        Returns the gain of the transfer function vector, i.e., the factor
+        with which the magnitude of the transfer function vector needs to be
+        multiplied to get a magnitude of one (1).
         """
         K = 1 / self.magnitude
         return K
 
 
 class RootLocus:
-    """Analysis of a negative- or positive-feedback system with positive
-    gain K.
+    """
+    The root locus of a feedback system is the path in the complex plane where
+    closed-loop poles of the feedback system can be situated depending on the
+    value of the open-loop gain $K$.
 
     Notes
     -----
-    A negative-feedback system with negative gain is equivalent to a
-    positive-feedback system with a positive gain.
+    In the case of a negative-feedback system with $K > 0$, it follows from the
+    closed-loop characteristic equation $1 + K * GH = 0$ that point $s_i$ in the
+    complex plane is a closed-loop pole of the feedback system, if the angle of
+    the transfer function vector $GH(s_i)$ is 180° (or an odd multiple of 180°)
+    and the magnitude of $GH(s_i) = 1/K$.
+    So, in the case of a negative-feedback system, the root locus can also be
+    considered as the path in the complex plane where the angle of the open-loop
+    transfer function vector $GH$ is 180° (or an odd multiple of 180°).
+
+    In the case of positive-feedback system with $K > 0$, it follows from the
+    closed-loop characteristic equation $1 - K * GH = 0$ that point $s_i$ in the
+    complex plane is a closed-loop pole of the feedback system, if the angle of
+    the transfer function vector $GH(s_i)$ is 0° (or an even multiple of 360°)
+    and the magnitude of $GH(s_i) = 1/K$.
+
+    A negative feedback system with $K < 0$ can be considered as a positive
+    feedback system having the characteristic equation $1 - |K| * GH$.
+
+    The root locus in the negative imaginary half-plane is the mirror image of
+    the root locus in the positive imaginary half-plane.
     """
     sigma = sp.Symbol('sigma', real=True)
 
@@ -214,14 +221,15 @@ class RootLocus:
         Parameters
         ----------
         GH:
-            Open-loop transfer function of the feedback control system.
+            Open-loop transfer function of the feedback control system without
+            open-loop gain $K$.
         positive_feedback:
-            Indicates if the system uses positive feedback. Default is
+            Indicates whether the system has positive feedback. The default is
             negative feedback.
         """
         self.GH = GH
         self.positive_feedback = positive_feedback
-        self.tfv = TransferFunctionVector(self.GH)
+        self.tf_vector = TransferFunctionVector(self.GH)
         self.zeros = self.GH.zeros_sympy
         self.poles = self.GH.poles_sympy
 
@@ -272,54 +280,33 @@ class RootLocus:
 
         Returns
         -------
-        A list with the breakaway points and a list with the break-in points.
-        Either one or both lists might be empty. If that is the case, it doesn't
-        necessarily mean that there are no breakaway points nor break-in points.
-        It could equally mean that the (Sympy) equation that is used to determine
-        the breakaway and break-in points could not find a solution. As an
-        alternative, if the bounds are known (after the root locus has been
-        plot) within which a breakaway or break-in point lies, method
-        `get_breakaway_point`, respectively `get_break_in_point` can also be
-        used.
+        breakaway_points:
+            List with breakaway points on the real axis.
+        break_in_points:
+            List with break-in points on the real axis.
         """
         lhs = sum(1 / (self.sigma - z) for z in self.zeros)
         rhs = sum(1 / (self.sigma - p) for p in self.poles)
         eq = sp.Eq(lhs, rhs)
-        sol = sp.solve(eq, self.sigma)
-
-        break_in_points = []
+        sol = sp.solve(eq, self.sigma)  # breakaway and break-in points on real axis
         breakaway_points = []
-
-        real_zeros = [zero.real for zero in self.zeros if zero.imag == 0.0]
-        real_poles = [pole.real for pole in self.poles if pole.imag == 0.0]
-
-        if real_zeros:
-            real_zero_min, real_zero_max = min(real_zeros), max(real_zeros)
-            if real_zero_min == real_zero_max:
-                if real_zero_min <= 0.0:
-                    real_zero_max = real_zero_min
-                    real_zero_min = -float('inf')
-                else:
-                    real_zero_max = float('inf')
-        else:
-            real_zero_min, real_zero_max = None, None
-
-        if real_poles:
-            real_pole_min, real_pole_max = min(real_poles), max(real_poles)
-            if real_pole_min == real_pole_max:
-                if real_pole_min <= 0.0:
-                    real_pole_max = real_pole_min
-                    real_pole_min = -float('inf')
-                else:
-                    real_pole_max = float('inf')
-        else:
-            real_pole_min, real_pole_max = None, None
-
-        for elem in sol:
-            if real_zeros and elem in sp.Interval(real_zero_min, real_zero_max):
-                break_in_points.append(elem)
-            elif real_poles and elem in sp.Interval(real_pole_min, real_pole_max):
-                breakaway_points.append(elem)
+        break_in_points = []
+        for sigma in sol:
+            lower_bound = complex(sigma - 0.01, 0)
+            upper_bound = complex(sigma + 0.01, 0)
+            self.tf_vector.point = lower_bound
+            lower_bound_gain = self.tf_vector.gain
+            self.tf_vector.point = upper_bound
+            upper_bound_gain = self.tf_vector.gain
+            point = complex(sigma, 0)
+            self.tf_vector.point = point
+            gain = self.tf_vector.gain
+            max_gain = max(lower_bound_gain, gain, upper_bound_gain)
+            if max_gain == gain:
+                # local maximum -> breakaway point
+                breakaway_points.append(point.real)
+            else:
+                break_in_points.append(point.real)
         return breakaway_points, break_in_points
 
     def get_breakaway_point(self, bounds: tuple[float, float]) -> tuple[float, float]:
@@ -328,12 +315,12 @@ class RootLocus:
         the gain reaches a (local) maximum. Also returns the gain at this point.
         """
         def _objective(sigma: float) -> float:
-            self.tfv.point = complex(sigma, 0)
-            return -self.tfv.gain
+            self.tf_vector.point = complex(sigma, 0)
+            return -self.tf_vector.gain
 
         res = minimize_scalar(_objective, bounds=bounds)
-        self.tfv.point = complex(res.x, 0)
-        return res.x, self.tfv.gain
+        self.tf_vector.point = complex(res.x, 0)
+        return res.x, self.tf_vector.gain
 
     def get_break_in_point(self, bounds: tuple[float, float]) -> tuple[float, float]:
         """Returns the break-in point that must lie between the specified lower
@@ -341,12 +328,12 @@ class RootLocus:
         the gain reaches a (local) minimum. Also returns the gain at this point.
         """
         def _objective(sigma: float) -> float:
-            self.tfv.point = complex(sigma, 0)
-            return self.tfv.gain
+            self.tf_vector.point = complex(sigma, 0)
+            return self.tf_vector.gain
 
         res = minimize_scalar(_objective, bounds=bounds)
-        self.tfv.point = complex(res.x, 0)
-        return res.x, self.tfv.gain
+        self.tf_vector.point = complex(res.x, 0)
+        return res.x, self.tf_vector.gain
 
     def find_jw_crossings(
         self,
@@ -381,8 +368,8 @@ class RootLocus:
         # Calculate open-loop transfer function vector angles.
         angles = []
         for point in points:
-            self.tfv.point = point
-            angles.append(self.tfv.angle)
+            self.tf_vector.point = point
+            angles.append(self.tf_vector.angle)
 
         if self.positive_feedback:
             # Find index of angle closest to 0°:
@@ -401,8 +388,8 @@ class RootLocus:
         # positive-feedback system / 180° for a negative-feedback system, i.e.
         # where the root locus crosses the imaginary axis.
         def _objective(imag: float) -> float:
-            self.tfv.point = complex(0, imag)
-            angle = abs(self.tfv.angle)
+            self.tf_vector.point = complex(0, imag)
+            angle = abs(self.tf_vector.angle)
             if self.positive_feedback:
                 return angle
             else:
@@ -547,8 +534,8 @@ class RootLocus:
         phi = np.pi - np.arccos(damping_ratio)
 
         def _objective(r: float) -> float:
-            self.tfv.point = cmath.rect(r, phi)
-            angle = abs(self.tfv.angle)
+            self.tf_vector.point = cmath.rect(r, phi)
+            angle = abs(self.tf_vector.angle)
             if self.positive_feedback:
                 return angle
             else:
@@ -561,8 +548,8 @@ class RootLocus:
         else:
             r_sol = res.root
             p_sol = cmath.rect(r_sol, phi)
-            self.tfv.point = p_sol
-            K = self.tfv.gain
+            self.tf_vector.point = p_sol
+            K = self.tf_vector.gain
             return p_sol, K
 
     def find_damping_ratio_crossings(
@@ -572,10 +559,11 @@ class RootLocus:
         r_max: float = 20.0,
         r_num: int = 100
     ) -> list[tuple[complex | None, float | None]]:
-        """Searches for points along the specified damping ratio line where the
-        root locus might be crossing, i.e., where the angle of the open-loop
-        transfer function vector equals 180° in case of a negative-feedback
-        system or 0° in case of a positive-feedback system..
+        """Searches for points along the specified damping ratio line in the
+        positive imaginary half-plane where the root locus might be crossing,
+        i.e., where the angle of the open-loop transfer function vector equals
+        180° in case of a negative-feedback system or 0° in case of a
+        positive-feedback system.
 
         Parameters
         ----------
@@ -593,16 +581,17 @@ class RootLocus:
 
         Returns
         -------
-        If crossing points are found, returns a list with the coordinates of
-        each crossing point as a complex number and the gain K at this point.
+        If crossings with the root locus are found, returns a list with the
+        coordinates of each crossing point as a complex number and the
+        corresponding open-loop gain $K$ at this point.
         """
         phi = np.pi - np.arccos(damping_ratio)
         radii = np.linspace(r_min, r_max, r_num)
         points = [cmath.rect(r, phi) for r in radii]
 
         def _get_angle(point: complex) -> float:
-            self.tfv.point = point
-            return self.tfv.angle
+            self.tf_vector.point = point
+            return self.tf_vector.angle
 
         angles = list(map(_get_angle, points))
         abs_angles = np.abs(angles)
@@ -631,8 +620,8 @@ class RootLocus:
             if sol[0] is None:
                 solutions.pop(i)
             else:
-                self.tfv.point = sol[0]
-                a = round(self.tfv.angle)
+                self.tf_vector.point = sol[0]
+                a = round(self.tf_vector.angle)
                 if self.positive_feedback:
                     if abs(a) != 0.0:
                         solutions.pop(i)
@@ -642,8 +631,8 @@ class RootLocus:
         return solutions
 
     def _get_gain(self, pole: complex) -> float:
-        self.tfv.point = pole
-        return self.tfv.gain
+        self.tf_vector.point = pole
+        return self.tf_vector.gain
 
     def find_closed_loop_poles(
         self,
@@ -685,12 +674,12 @@ class RootLocus:
 
         if self.positive_feedback:
             def _is_closed_loop_pole(point: complex) -> bool:
-                self.tfv.point = point
-                return self._is_even_multiple_of_2pi(self.tfv.angle)
+                self.tf_vector.point = point
+                return self._is_even_multiple_of_2pi(self.tf_vector.angle)
         else:
             def _is_closed_loop_pole(point: complex) -> bool:
-                self.tfv.point = point
-                return self._is_odd_multiple_of_pi(self.tfv.angle)
+                self.tf_vector.point = point
+                return self._is_odd_multiple_of_pi(self.tf_vector.angle)
 
         closed_loop_poles = [
             (i, p)
@@ -844,17 +833,18 @@ def pole_sensitivity(
     pole: complex | float,
     K_value: float
 ) -> complex:
-    """Returns the sensitivity of a closed-loop pole to gain.
+    """Returns the sensitivity of a closed-loop pole to a change of the
+    open-loop gain.
 
     Parameters
     ----------
     T:
         Closed-loop transfer function.
     pole:
-        Closed-loop pole of T for which the sensitivity is to be determined.
+        Closed-loop pole of $T(s)$ for which the sensitivity is to be determined.
     K_value:
-        The value of the gain which corresponds with the closed-loop pole on
-        the root locus.
+        The value of the open-loop gain which corresponds with the closed-loop
+        pole on the root locus.
     """
     den = T.denominator_poly.expr
     s_ = sp.Function('s')(K)  # locally redefine s as function of gain K

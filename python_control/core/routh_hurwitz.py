@@ -1,14 +1,15 @@
 """
-Implementation of the Routh-Hurwitz Criterion to generate a Routh table.
-
+Implementation of the Routh-Hurwitz Stability Criterion
+-------------------------------------------------------
 The Routh-Hurwitz criterion basically states that the number of roots of the
-denominator of a transfer function that are in the right half-plane is equal to
-the number of sign changes in the first column. Thus, a system is stable if
-there are no sign changes in the first column of the Routh table.
+denominator of a transfer function that are in the unstable right half-plane is
+equal to the number of sign changes in the first column. Thus, a system is
+stable if there are no sign changes in the first column of the Routh table.
 
-Two special cases can occur: (1) the Routh table sometimes will have a zero only
-in the first column of a row, or (2) the Routh table sometimes will have an
-entire row that consists of zeros.
+Two special cases can occur:
+(1) the Routh table sometimes will have a zero only in the first column of a
+row, or
+(2) the Routh table sometimes will have an entire row that consists of zeros.
 
 If the first element of a row is zero, division by zero would be required to
 form the next row. To avoid this phenomenon, an epsilon, ε, is assigned to
@@ -18,9 +19,9 @@ the entries in the first column can be determined.
 
 Sometimes while making a Routh table, we find that an entire row consists of
 zeros because there is an even polynomial that is a factor of the original
-polynomial. Even polynomials only have roots that are symmetrical about the
-origin of the s-plane. This symmetry can occur under three conditions of root
-position:
+polynomial.
+Even polynomials only have roots that are symmetrical about the origin of the
+s-plane. This symmetry can occur under three conditions of root position:
 (1) The roots are symmetrical and real,
 (2) the roots are symmetrical and imaginary, or
 (3) the roots are quadrantal and symmetrical about the origin.
@@ -32,8 +33,8 @@ Everything from the row containing the even polynomial down to the end of the
 Routh table is a test of only the even polynomial. Therefore, the number of sign
 changes from the even polynomial to the end of the table equals the number of
 right-half-plane roots of the even polynomial. Because of the symmetry of roots
-about the origin, the even polynomial must have the same number of
-left-half-plane roots as it does right-half-plane roots. Having accounted for
+about the origin, the even polynomial must have the same number of left-half
+plane roots as it does right-half-plane roots. Having accounted for
 the roots in the right and left half-planes, we know the remaining roots must be
 on the jω-axis.
 Every row in the Routh table from the beginning of the chart to the row
@@ -46,11 +47,12 @@ contained in the other polynomial.
 Usage
 -----
 To retrieve the Routh table of the denominator of a transfer function, call the
-function `routh_hurwitz` of this module with the denominator of the transfer
-function as Sympy `Poly` object. This function will return an object of class
-`RouthHurwitz`, that returns a string representation of the Routh table when
-`print` is called on it, i.e. `print(routh_hurwitz(tf.denominator.as_poly))`
-with `tf` an instance of the `TransferFunction` class.
+function `routh_hurwitz` in this module, passing it the denominator of the
+transfer function as Sympy `Poly` object. This function will return an object of
+class `RouthHurwitz`, that returns a string representation of the Routh table
+when the `print` command is called on it, i.e.
+                ``print(routh_hurwitz(tf.denominator.as_poly))``
+in which `tf` is an instance of class `TransferFunction`.
 
 References
 ----------
@@ -85,12 +87,13 @@ class RouthHurwitz:
             the routh table will be created.
         """
         self.polynomial = p
+        self.coeffs = None
         self.routh_matrix: sp.Matrix | None = None
         self._zero_row_index: int | None = None
 
-    def __call__(self) -> sp.Matrix:
+    def create_routh_table(self) -> sp.Matrix:
         """
-        Constructs the Routh-Hurwitz matrix given the `Poly` object in
+        Constructs the Routh-Hurwitz matrix given the `Poly` object of
         `self.polynomial`.
 
         Returns
@@ -195,5 +198,5 @@ def routh_hurwitz(p: sp.Poly) -> RouthHurwitz:
         Denominator of the transfer function as a Sympy Poly object.
     """
     rh = RouthHurwitz(p)
-    rh()
+    rh.create_routh_table()
     return rh

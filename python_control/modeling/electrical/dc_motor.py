@@ -5,7 +5,7 @@ from python_control.modeling.electrical import ElectricalImpedance
 
 
 class DCMotor:
-    """Models an armature-controlled dc servomotor."""
+    """Models an armature-controlled DC servomotor."""
 
     def __init__(
         self,
