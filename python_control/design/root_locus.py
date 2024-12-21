@@ -4,6 +4,7 @@ References
 ----------
 Nise, N. S. (2020). Control Systems Engineering, EMEA Edition, 8th Edition.
 """
+import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
 from collections import namedtuple
@@ -76,7 +77,7 @@ class SystemData:
     Which attributes are filled in, will depend on the design function that
     returns the `SystemData` object.
     """
-    feedback_system: FeedbackSystem
+    feedback_system: FeedbackSystem | None
     damping_ratio: float
     forward_gain: float
     root_locus: RootLocus
@@ -91,15 +92,20 @@ class SystemData:
     feedback_path: TransferFunction | None = None
 
     def __post_init__(self):
-        self.settling_time = get_settling_time(
-            self.natural_frequency,
-            self.damping_ratio
-        )
-        self.peak_time = get_peak_time(
-            self.natural_frequency,
-            self.damping_ratio
-        )
-        self.e_oo = self._calc_steady_state_error()
+        if self.feedback_system is not None:
+            self.settling_time = get_settling_time(
+                self.natural_frequency,
+                self.damping_ratio
+            )
+            self.peak_time = get_peak_time(
+                self.natural_frequency,
+                self.damping_ratio
+            )
+            self.e_oo = self._calc_steady_state_error()
+        else:
+            self.settling_time = float('nan')
+            self.peak = float('nan')
+            self.e_oo = float('nan')
 
     def _calc_steady_state_error(self) -> float | None:
         if self.feedback_system.system_type == 'type_0':
@@ -195,7 +201,7 @@ def get_derivative_gain(
     return K_d, K_p
 
 
-def design_without_compensation(
+def design_proportional_feedback(
     G_plant: TransferFunction,
     damping_ratio: float,
     name: str = '',
@@ -262,9 +268,18 @@ def design_without_compensation(
             G_plant
         )
     else:
-        raise ValueError(
+        warnings.warn(
             "Unable to create the feedback system. Could not find a closed-loop "
-            "pole on the damping ratio line."
+            "pole on the damping ratio line.",
+            category=RuntimeWarning
+        )
+        return SystemData(
+            feedback_system=None,
+            damping_ratio=damping_ratio,
+            forward_gain=float('nan'),
+            root_locus=root_locus,
+            dominant_pole=complex(float('nan'), float('nan')),
+            natural_frequency=float('nan'),
         )
 
 
@@ -272,6 +287,8 @@ def design_with_compensation(
     KG_c: TransferFunction,
     G_plant: TransferFunction,
     damping_ratio: float,
+    settling_time: float | None = None,
+    peak_time: float | None = None,
     name: str = '',
     gain_symbol: sp.Symbol = K
 ) -> SystemData:
@@ -293,6 +310,10 @@ def design_with_compensation(
         same as that the plant gain is 1).
     damping_ratio:
         Required damping ratio of the feedback system.
+    settling_time:
+        Required settling time of the lead-compensated system.
+    peak_time:
+        Required peak time of the lead-compensated system.
     name:
         An optional name to identify the feedback system.
     gain_symbol:
@@ -308,9 +329,9 @@ def design_with_compensation(
     sysdata:
         Instance of dataclass `SystemData`.
 
-    Raises
-    ------
-    ValueError:
+    Warnings
+    --------
+    RuntimeWarning:
         If no closed-loop pole of the feedback system is found on the damping
         ratio line.
     """
@@ -318,15 +339,28 @@ def design_with_compensation(
     root_locus = RootLocus(KG)
     zeta_crossings = root_locus.find_damping_ratio_crossings(damping_ratio)
     if zeta_crossings:
-        gain_value = zeta_crossings[0][1]
-        dominant_pole = zeta_crossings[0][0]
-        omega_nat = abs(dominant_pole)
+        T_s_list, T_p_list = [], []
+        for zeta_crossing in zeta_crossings:
+            dominant_pole = zeta_crossing[0]
+            omega_nat = abs(dominant_pole)
+            T_s_list.append(get_settling_time(omega_nat, damping_ratio))
+            T_p_list.append(get_peak_time(omega_nat, damping_ratio))
+        i_min = 0
+        if settling_time is not None:
+            diff_T_s_list = [abs(settling_time - T_s) for T_s in T_s_list]
+            i_min = diff_T_s_list.index(min(diff_T_s_list))
+        elif peak_time is not None:
+            diff_T_p_list = [abs(peak_time - T_p) for T_p in T_p_list]
+            i_min = diff_T_p_list.index(min(diff_T_p_list))
+        gain_value = zeta_crossings[i_min][1]
         feedback_system = create_feedback_system(
             gain_value,
             KG,
             name,
             gain_symbol
         )
+        dominant_pole = zeta_crossings[i_min][0]
+        omega_nat = abs(dominant_pole)
         return SystemData(
             feedback_system,
             damping_ratio,
@@ -338,9 +372,18 @@ def design_with_compensation(
             KG_c
         )
     else:
-        raise ValueError(
+        warnings.warn(
             "Unable to create the feedback system. Could not find a closed-loop "
-            "pole on the damping ratio line."
+            "pole on the damping ratio line.",
+            category=RuntimeWarning
+        )
+        return SystemData(
+            feedback_system=None,
+            damping_ratio=damping_ratio,
+            forward_gain=float('nan'),
+            root_locus=root_locus,
+            dominant_pole=complex(float('nan'), float('nan')),
+            natural_frequency=float('nan'),
         )
 
 
@@ -362,7 +405,7 @@ def design_lag_compensator(
     ----------
     feedback_system:
         Feedback system of which the initial forward-path gain has already been
-        determined with function `design_without_compensation`.
+        determined with function `design_proportional_feedback`.
     e_oo_reduction_factor:
         Factor (> 1) indicating by how much the steady-state error should be
         reduced.
@@ -584,6 +627,8 @@ def design_PD_feedback_system(
         KG_c_pd,
         G_plant,
         damping_ratio,
+        settling_time,
+        peak_time,
         name,
         gain_symbol
     )
@@ -666,6 +711,8 @@ def design_PID_feedback_system(
         G_c_i,
         sysdata_pd.feedback_system.open_loop,
         damping_ratio,
+        settling_time,
+        peak_time,
         names[0],
         gain_symbol
     )
@@ -721,7 +768,7 @@ def design_lag_feedback_system(
     sysdata:
         Instance of class `SystemData`.
     """
-    sysdata_ini = design_without_compensation(
+    sysdata_ini = design_proportional_feedback(
         G_plant,
         damping_ratio,
         name,
@@ -737,6 +784,8 @@ def design_lag_feedback_system(
         KG_c,
         G_plant,
         damping_ratio,
+        None,
+        None,
         name,
         gain_symbol
     )
@@ -802,6 +851,8 @@ def design_lead_feedback_system(
         KG_lead,
         G_plant,
         damping_ratio,
+        settling_time,
+        peak_time,
         name
     )
     KG_lead = create_transfer_function(
@@ -878,7 +929,7 @@ def design_lag_lead_feedback_system(
         Instance of `SystemData` which holds the lead compensated feedback
         system (`FeedbackSystem` object).
     """
-    sysdata_uncomp = design_without_compensation(
+    sysdata_uncomp = design_proportional_feedback(
         G_plant,
         damping_ratio,
         '',
@@ -907,7 +958,11 @@ def design_lag_lead_feedback_system(
     KG_lag_expr = KG_lag.expr.subs(gain_symbol, 1)
     KG_lag = TransferFunction(KG_lag_expr)
     sysdata_lead_lag = design_with_compensation(
-        KG_lag, sysdata_lead.feedback_system.open_loop, damping_ratio,
+        KG_lag,
+        sysdata_lead.feedback_system.open_loop,
+        damping_ratio,
+        settling_time,
+        peak_time,
         names[0]
     )
     return sysdata_lead_lag, sysdata_lead

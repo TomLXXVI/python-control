@@ -5,6 +5,8 @@ import numpy as np
 from scipy.optimize import root_scalar, minimize_scalar
 import sympy as sp
 import control as ct
+import matplotlib
+import matplotlib.pyplot as plt
 from ..matplotlibwrapper import LineChart
 from .transfer_function import TransferFunction
 from .symbols import s, K
@@ -750,8 +752,9 @@ class RootLocus:
             pole = cmath.rect(res.root, phi)
             return pole
 
-    def plot(
-        self,
+    @staticmethod
+    def _static_plot(
+        G_ct: ct.TransferFunction,
         real_limits: tuple[float, float, float] = (-10, 10, 1),
         imag_limits: tuple[float, float, float] = (-10, 10, 1),
         **kwargs
@@ -767,10 +770,6 @@ class RootLocus:
         imag_limits:
             Same as `real_limits`, but applied to the imaginary axis.
         """
-        if self.positive_feedback is False:
-            G_ct = ct.zpk(self.zeros, self.poles, 1)
-        else:
-            G_ct = ct.zpk(self.zeros, self.poles, -1)
         rl_data = ct.root_locus_map(G_ct)
         loci_x, loci_y = zip(*[
             (loc.real, loc.imag)
@@ -787,7 +786,6 @@ class RootLocus:
             ])
         else:
             zeros_x, zeros_y = None, None
-
         rlp = LineChart(size=kwargs.get('fig_size'), dpi=kwargs.get('dpi'))
         rlp.add_xy_data(
             label='poles',
@@ -826,6 +824,29 @@ class RootLocus:
         rlp.x1.add_title('real')
         rlp.y1.add_title('imaginary')
         rlp.show()
+
+    def plot(
+        self,
+        dynamic: bool = False,
+        real_limits: tuple[float, float, float] = (-10, 10, 1),
+        imag_limits: tuple[float, float, float] = (-10, 10, 1),
+        **kwargs
+    ) -> None:
+        if self.positive_feedback is False:
+            G_ct = ct.zpk(self.zeros, self.poles, 1)
+        else:
+            G_ct = ct.zpk(self.zeros, self.poles, -1)
+        if dynamic:
+            matplotlib.use('ipympl')
+            with plt.ioff():
+                cplt = ct.root_locus(G_ct, title='')
+                cplt.figure.canvas.header_visible = False
+                cplt.figure.canvas.footer_visible = False
+                plt.show()
+            plt.close('all')
+            matplotlib.use('inline')
+        else:
+            self._static_plot(G_ct, real_limits, imag_limits, **kwargs)
 
 
 def pole_sensitivity(
