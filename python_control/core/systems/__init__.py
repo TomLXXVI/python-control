@@ -1,5 +1,5 @@
 from .first_order import FirstOrderSystem
-from .second_order import (
+from .second_order_old import (
     SecondOrderSystem,
     get_peak_time,
     get_settling_time,

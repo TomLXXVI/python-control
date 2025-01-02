@@ -38,16 +38,19 @@ def create_feedback_system(
 
 def create_second_order_system(
     dominant_pole: complex,
-    damping_ratio: float,
+    dc_gain: float | None = None,
     name: str = ''
 ) -> SecondOrderSystem:
-    """Given one of the two dominant complex poles and the required damping
-    ratio, creates and returns a `SecondOrderSystem` instance.
+    """Given one of the two dominant complex poles, creates and returns a
+    `SecondOrderSystem` instance.
     """
     omega_nat = abs(dominant_pole)
+    phi = np.arctan(abs(dominant_pole.imag) / abs(dominant_pole.real))
+    damping_ratio = np.cos(phi)
     a = 2 * damping_ratio * omega_nat
     b = omega_nat ** 2
-    second_order_system = SecondOrderSystem(a, b, name=name)
+    K = dc_gain if dc_gain is None else dc_gain * b
+    second_order_system = SecondOrderSystem(a, b, K, name=name)
     return second_order_system
 
 

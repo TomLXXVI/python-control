@@ -27,7 +27,8 @@ class InverseLaplaceTransform:
         if isinstance(f, str):
             f = sp.parse_expr(f)
             f = f.subs('t', t)
-        self.f = f.expand(complex=True)
+        # self.f = f.expand(complex=True)
+        self.f = f
         self._fun_mpmath = sp.lambdify(t, self.f, 'mpmath')
         self._fun_numpy = sp.lambdify(t, self.f, 'numpy')
 
@@ -59,15 +60,19 @@ class InverseLaplaceTransform:
         """
         Returns the value(s) of *f(t)* at time moment(s) *t*.
         """
-        f = None
+        y = None
         if isinstance(t, (int, float)):
-            f = float(self._fun_mpmath(t))
+            y = self._fun_mpmath(t)
+            try:
+                y = float(y)
+            except TypeError:
+                y = complex(y).real
         elif isinstance(t, np.ndarray):
-            f = self._fun_numpy(t)
-            if not isinstance(f, np.ndarray) and len(t) > 1:
-                # f is a constant (step function)
-                f = np.array([f] * len(t), dtype=float)
-        return f
+            y = self._fun_numpy(t)
+            if not isinstance(y, np.ndarray) and len(t) > 1:
+                # y is a constant (step function)
+                y = np.array([y] * len(t), dtype=float)
+        return y
 
 
 class LaplaceTransform:
@@ -122,10 +127,10 @@ class LaplaceTransform:
         """
         Returns the partial fraction expansion of *F(s)*.
         """
-        F = sp.nsimplify(self.F)
-        F = sp.apart(F, s, full=True)
-        F = F.doit()
-        if evaluate: F = F.evalf()
+        F = sp.nsimplify(self.F)  # convert floating-point numbers to rationals
+        F = sp.apart(F, s, full=True)  # full partial fraction decomposition
+        F = F.doit()  # evaluate any unevaluated expressions
+        if evaluate: F = F.evalf()  # numerically evaluate the expression
         return F
 
     @property

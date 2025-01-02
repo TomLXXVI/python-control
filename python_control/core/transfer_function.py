@@ -20,8 +20,6 @@ from .symbols import s
 
 Denominator = namedtuple('Denominator', ('as_poly', 'as_array'))
 Numerator = namedtuple('Numerator', ('as_poly', 'as_array'))
-Poles = namedtuple('Poles', ('from_sympy', 'from_control'))
-Zeros = namedtuple('Zeros', ('from_sympy', 'from_control'))
 
 
 class TransferFunction:
@@ -248,7 +246,7 @@ class TransferFunction:
         Returns the poles of the transfer function using Sympy.
         """
         poles = self._sp_tf.poles()
-        poles = [complex(pole) for pole in poles]
+        poles = [pole for pole in poles]
         return poles
 
     @property
@@ -279,7 +277,7 @@ class TransferFunction:
         Returns the zeros of the transfer function using Sympy.
         """
         zeros = self._sp_tf.zeros()
-        zeros = [complex(zero) for zero in zeros]
+        zeros = [zero for zero in zeros]
         return zeros
 
     @property
@@ -373,7 +371,7 @@ class TransferFunction:
         elif isinstance(input_, LaplaceTransform):
             input_ = input_.expr
         output_expr = sp.Mul(self._sp_expr, input_)
-        return LaplaceTransform(output_expr)
+        return LaplaceTransform(output_expr.evalf())
 
     def __str__(self):
         return str(self.expr)

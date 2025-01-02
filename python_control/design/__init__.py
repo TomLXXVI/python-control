@@ -6,7 +6,7 @@ from .general import (
     plot_parabola_responses,
     get_dominant_poles
 )
-from .root_locus import (
+from .root_locus_old import (
     get_integral_gain,
     get_derivative_gain
 )

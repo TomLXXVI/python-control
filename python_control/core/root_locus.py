@@ -82,6 +82,8 @@ class TransferFunctionVector:
             open-loop gain K).
         """
         self.GH = GH
+        self.zeros = [complex(zero) for zero in self.GH.zeros]
+        self.poles = [complex(pole) for pole in self.GH.poles]
         self._p: complex | None = None
 
     @property
@@ -109,7 +111,7 @@ class TransferFunctionVector:
         zero_vectors = [Vector(
             real=self._p.real - zero.real,
             imag=self._p.imag - zero.imag
-        ) for zero in self.GH.zeros_sympy]
+        ) for zero in self.zeros]
         return zero_vectors
 
     @property
@@ -121,7 +123,7 @@ class TransferFunctionVector:
         pole_vectors = [Vector(
             real=self._p.real - pole.real,
             imag=self._p.imag - pole.imag
-        ) for pole in self.GH.poles_sympy]
+        ) for pole in self.poles]
         return pole_vectors
 
     @property
@@ -184,17 +186,17 @@ class TransferFunctionVector:
 
 class RootLocus:
     """
-    The root locus of a feedback system is the path in the complex plane where
+    The root locus of a feedback system are the paths in the complex plane where
     closed-loop poles of the feedback system can be situated depending on the
     value of the open-loop gain $K$.
 
     Notes
     -----
-    In the case of a negative-feedback system with $K > 0$, it follows from the
-    closed-loop characteristic equation $1 + K * GH = 0$ that point $s_i$ in the
-    complex plane is a closed-loop pole of the feedback system, if the angle of
-    the transfer function vector $GH(s_i)$ is 180° (or an odd multiple of 180°)
-    and the magnitude of $GH(s_i) = 1/K$.
+    1.  In the case of a negative-feedback system with $K > 0$, it follows from 
+    the closed-loop characteristic equation $1 + K * GH = 0$ that point $s_i$ in
+    the complex plane is a closed-loop pole of the feedback system, if the angle
+    of the transfer function vector $GH(s_i)$ is 180° (or an odd multiple of 
+    180°) and the magnitude of $GH(s_i) = 1/K$.
     So, in the case of a negative-feedback system, the root locus can also be
     considered as the path in the complex plane where the angle of the open-loop
     transfer function vector $GH$ is 180° (or an odd multiple of 180°).
@@ -205,11 +207,11 @@ class RootLocus:
     the transfer function vector $GH(s_i)$ is 0° (or an even multiple of 360°)
     and the magnitude of $GH(s_i) = 1/K$.
 
-    A negative feedback system with $K < 0$ can be considered as a positive
+    2.  A negative feedback system with $K < 0$ can be considered as a positive
     feedback system having the characteristic equation $1 - |K| * GH$.
 
-    The root locus in the negative imaginary half-plane is the mirror image of
-    the root locus in the positive imaginary half-plane.
+    3.  The root locus in the negative imaginary half-plane is the mirror image 
+    of the root locus in the positive imaginary half-plane.
     """
     sigma = sp.Symbol('sigma', real=True)
 
@@ -232,8 +234,8 @@ class RootLocus:
         self.GH = GH
         self.positive_feedback = positive_feedback
         self.tf_vector = TransferFunctionVector(self.GH)
-        self.zeros = self.GH.zeros_sympy
-        self.poles = self.GH.poles_sympy
+        self.zeros = [complex(zero) for zero in self.GH.zeros]
+        self.poles = [complex(pole) for pole in self.GH.poles]
 
     @staticmethod
     def _is_odd_multiple_of_pi(angle: float) -> bool:
@@ -753,7 +755,7 @@ class RootLocus:
             return pole
 
     @staticmethod
-    def _static_plot(
+    def _static_root_locus_plot(
         G_ct: ct.TransferFunction,
         real_limits: tuple[float, float, float] = (-10, 10, 1),
         imag_limits: tuple[float, float, float] = (-10, 10, 1),
@@ -839,14 +841,14 @@ class RootLocus:
         if dynamic:
             matplotlib.use('ipympl')
             with plt.ioff():
-                cplt = ct.root_locus(G_ct, title='')
+                cplt = ct.root_locus(G_ct, title='', initial_gain=kwargs.pop('initial_gain', None))
                 cplt.figure.canvas.header_visible = False
                 cplt.figure.canvas.footer_visible = False
                 plt.show()
             plt.close('all')
             matplotlib.use('inline')
         else:
-            self._static_plot(G_ct, real_limits, imag_limits, **kwargs)
+            self._static_root_locus_plot(G_ct, real_limits, imag_limits, **kwargs)
 
 
 def pole_sensitivity(
