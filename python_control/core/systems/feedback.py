@@ -1,11 +1,14 @@
 from collections import namedtuple
-import sympy as sp
-import numpy as np
-from scipy.optimize import minimize_scalar, root_scalar
-from ..symbols import s, t
-from ..laplace_transform import LaplaceTransform, InverseLaplaceTransform
-from ..transfer_function import TransferFunction
 
+import numpy as np
+import sympy as sp
+from scipy.optimize import root_scalar
+from ..symbols import s
+from ..transfer_function import TransferFunction
+from ..laplace_transform import LaplaceTransform, InverseLaplaceTransform
+
+LAP = LaplaceTransform
+ILAP = InverseLaplaceTransform
 
 StaticErrorConstants = namedtuple('StaticErrorConstants', ('Kp', 'Kv', 'Ka'))
 SteadyStateError = namedtuple('SteadyStateError', ('e_oo', 'eR_oo', 'eD_oo'))
@@ -15,60 +18,80 @@ class FeedbackSystem:
 
     def __init__(
         self,
-        G_c: TransferFunction,
+        G_c: TransferFunction | None = None,
         G_p: TransferFunction | None = None,
         H: TransferFunction | None = None,
         name: str = ''
     ) -> None:
-        """
-        Creates a (negative) `FeedbackSystem` instance.
-
-        Parameters
-        ----------
-        G_c:
-            Transfer function of the controller if parameter G_p is not None,
-            else the forward transfer function of the closed-loop feedback
-            system.
-        G_p: optional
-            Transfer function of the plant.
-        H: optional
-            Feedback transfer function. If None, unity-feedback is assumed.
-        name: optional
-            A name to identify the system, e.g. in the legend of a plot.
-        """
+        self.G_c = G_c if G_c is not None else TransferFunction(1)
+        self.G_p = G_p if G_p is not None else TransferFunction(1)
+        self.H = H if H is not None else TransferFunction(1)
         self.name = name
-        self.G_c = G_c
-        self.G_p = G_p
-        self.H = H
-        if self.G_p is None: self.G_p = TransferFunction(1)
-        if self.H is None: self.H = TransferFunction(1)
-        # Forward transfer function of the equivalent unity-feedback system.
-        self.G = self.G_c * self.G_p / (1 + self.G_c * self.G_p * (self.H - 1))
-        # Transfer function E(s)/R(s) with error E(s) defined as R(s) - C(s):
-        T_ER = 1 / (1 + self.G)
-        self.T_ER = T_ER.expr
-        # Transfer function E(s)/D(s) with D(s) a disturbance input signal to
-        # the plant of the feedback system:
-        T_ED = self.G / (G_c * (1 + self.G))
-        self.T_ED = T_ED.expr
-        # Unit step response of the feedback system in the time domain:
-        self.u, self.u_oo = self._unit_step_time_response()
+        self.G = self._transform_to_unity_feedback_system()
+        self.E_to_R = self._get_error_to_reference()
+        self.E_to_D = self._get_error_to_disturbance()
+        self.open_loop = self._get_open_loop()
+        self.closed_loop = self._get_closed_loop()
+        self.is_stable = self.closed_loop.is_stable
+        self.unit_step_response, self.y_oo = self._get_unit_step_response()
 
-    @property
-    def open_loop(self) -> TransferFunction:
+    def _transform_to_unity_feedback_system(self) -> TransferFunction:
+        """Transforms the feedback system to an equivalent unity-feedback
+        system with only a forward-path transfer function G(s).
         """
-        Returns the open-loop transfer function (loop gain) of the feedback
-        control system.
+        num = self.G_c * self.G_p
+        den = 1 + self.G_c * self.G_p * (self.H - 1)
+        G = num / den
+        return G
+
+    def _get_error_to_reference(self) -> TransferFunction:
+        """Returns the transfer function between the reference input signal R(s)
+        and the error signal E(s) = R(s) - Y(s).
         """
+        E_to_R = 1 / (1 + self.G)
+        return E_to_R
+
+    def _get_error_to_disturbance(self) -> TransferFunction:
+        """Returns the transfer function between the disturbance input signal
+        D(s) and the error signal E(s) = R(s) - Y(s).
+        """
+        E_to_D = self.G / (self.G_c * (1 + self.G))
+        return E_to_D
+
+    def _get_open_loop(self) -> TransferFunction:
+        """Returns the open-loop transfer function of the feedback system."""
         return self.G_c * self.G_p * self.H
 
-    @property
-    def closed_loop(self) -> TransferFunction:
-        """
-        Returns the closed-loop transfer function C(s)/R(s) of the feedback
-        control system.
-        """
+    def _get_closed_loop(self) -> TransferFunction:
+        """Returns the closed-loop transfer function of the feedback system."""
         return self.G.feedback(TransferFunction(1))
+
+    def _get_unit_step_response(self) -> tuple[ILAP | None, float | None]:
+        """
+        Calculates the unit-step response of the feedback system in the time
+        domain.
+
+        Returns
+        -------
+        time_response:
+            `InverseLaplaceTransform` object holding the unit-step response
+            of the feedback system in the time domain.
+        steady_state_value:
+            The value of the unit-step response when time goes to infinity.
+            If the system is unstable, `None` is returned.
+        """
+        if self.closed_loop._ct_tf is not None:
+            laplace_resp = self.closed_loop.response(1 / s)
+            time_resp = laplace_resp.inverse()
+            steady_state_err = self.closed_loop.steady_state_error(1 / s)
+            steady_state_val = 1 - steady_state_err
+            try:
+                steady_state_val = float(steady_state_val)
+            except TypeError:
+                # unstable system
+                steady_state_val = None
+            return time_resp, steady_state_val
+        return None, None
 
     @property
     def Kp(self) -> float | sp.Expr:
@@ -99,8 +122,8 @@ class FeedbackSystem:
 
     @property
     def static_error_constants(self) -> StaticErrorConstants:
-        """
-        Returns the static error constants in a named tuple `StaticErrorConstants`.
+        """Returns the static error constants in a named tuple
+        `StaticErrorConstants`.
         """
         return StaticErrorConstants(
             Kp=self.Kp,
@@ -110,11 +133,10 @@ class FeedbackSystem:
 
     @property
     def system_type(self) -> str:
-        """
-        Returns the system type, which corresponds with the number of pure
-        integrations in the forward path. If there are more than two integrations
-        in the forward path, 'None' is returned, which means that the system
-        type has not been determined.
+        """Returns the system type, which corresponds with the number of pure
+        integrations in the forward path. If there are more than two
+        integrations in the forward path, 'None' is returned, which means that
+        the system type has not been determined.
         """
         if self.Kv == 0 and self.Ka == 0:
             return 'type_0'
@@ -134,30 +156,23 @@ class FeedbackSystem:
         R: sp.Expr | LaplaceTransform | None,
         D: sp.Expr | LaplaceTransform | None = None
     ) -> SteadyStateError:
-        """
-        Returns the steady-state error of the feedback system for the given
+        """Returns the steady-state error of the feedback system for the given
         reference input signal R(s) and/or disturbance input signal D(s).
 
         Notes
         -----
         Test-input signals could be e.g. a step, ramp, or parabola function.
-        - Laplace transform of step input (position input) u(t):
-            1 / s
-        - Laplace transform of ramp input (velocity input) t * u(t):
-            1 / s**2
-        - Laplace transform of parabola input (acceleration input) 0.5 * t**2 * u(t):
-            1 / s**3
+        -   Laplace transform of step input (position input)
+            u(t): 1 / s
+        -   Laplace transform of ramp input (velocity input)
+            t * u(t): 1 / s**2
+        -   Laplace transform of parabola input (acceleration input)
+            0.5 * t**2 * u(t): 1 / s**3
         """
         if isinstance(R, LaplaceTransform): R = R.expr
         if isinstance(D, LaplaceTransform): D = D.expr
-        if R is not None:
-            E_R = self.T_ER * R
-        else:
-            E_R = None
-        if self.T_ED is not None and D is not None:
-            E_D = self.T_ED * D
-        else:
-            E_D = None
+        E_R = self.E_to_R.expr * R if R is not None else None
+        E_D = self.E_to_D.expr * D if D is not None else None
         E = None
         if E_R is not None:
             E = E_R
@@ -177,143 +192,221 @@ class FeedbackSystem:
         return SteadyStateError(e_oo, eR_oo, eD_oo)
 
     @property
-    def dominant_poles(self) -> tuple[complex, complex] | None:
-        """
-        Returns the complex, dominant poles of the closed-loop transfer function.
-        If no dominant poles could be determined, `None` is returned.
+    def dominant_pole_pair(self) -> tuple[complex, complex] | None:
+        """Returns the complex, dominant pole pair of the closed-loop transfer
+        function. If no dominant poles can be determined, `None` is returned.
+        If multiple complex pole pairs are present, the pole pair closest to the
+        imaginary axis (i.e. the "slowest" pole pair) is considered to be the
+        dominant pole pair.
         """
         complex_poles = [
             pole
             for pole in self.closed_loop.poles
-            if pole.imag != 0
+            if pole.imag > 0
         ]
-        if len(complex_poles) == 2:
-            if complex_poles[1] == complex_poles[0].conjugate():
-                # noinspection PyTypeChecker
-                return tuple(complex_poles)
+        if complex_poles:
+            real_parts = [p.real for p in complex_poles]
+            i_max = real_parts.index(max(rp for rp in real_parts if rp < 0.0))
+            dominant_pole = complex_poles[i_max]
+            dominant_pole_pair = (dominant_pole, dominant_pole.conjugate())
+            return dominant_pole_pair
         else:
             return None
 
-    def _unit_step_time_response(self) -> tuple[InverseLaplaceTransform | None, float | None]:
-        """
-        Calculates the unit-step response of the feedback system in the time
-        domain.
+    def settling_time(self, bracket: tuple[float, float] | None = None) -> float | None:
+        """Returns the settling time of the unit-step response.
+
+        Parameters
+        ----------
+        bracket: optional
+            The start and final value of the time interval in which the response
+            is settling. If the closed-loop transfer function has a dominant
+            pole pair, `bracket` can be `None`. In that case, the start time is
+            set to the peak time and the final time is determined as 100
+            times the natural period of the dominant poles.
+
+        Raises
+        ------
+        ValueError:
+            - If the closed-loop transfer function has no dominant pole pair and
+            `bracket` is not set (`None`).
+            - If the unit-step response at the final value of the bracket is
+            smaller than 0.98 * the steady-state value or greater than 1.02 *
+            the steady-state value.
 
         Returns
         -------
-        time_response:
-            `InverseLaplaceTransform` object holding the unit-step response
-            of the feedback system in the time domain.
-        steady_state_value:
-            The value of the unit-step response when time goes to infinity.
-            If the system is unstable, `None` is returned.
+        settling_time:
+            If the system is stable, has a dominant pole pair or `bracket` is
+            set.
+        None:
+            If the system is unstable.
         """
-        if self.closed_loop._ct_tf is not None:
-            laplace_response = self.closed_loop.response(1 / s)
-            time_response = laplace_response.inverse()
-            steady_state_value = sp.limit(time_response.expr, t, sp.oo)
-            try:
-                steady_state_value = float(steady_state_value)
-            except TypeError:
-                # happens if the system is not stable
-                steady_state_value = None
-            return time_response, steady_state_value
-        return None, None
-
-    @property
-    def peak_time(self) -> float | None:
-        """
-        Returns the peak time of the closed-loop unit-step response.
-
-        Notes
-        -----
-        The peak time is defined as the time required to reach the first or
-        maximum peak.
-        """
-        if self.u is not None:
-            def _objective(t: float) -> float:
-                uval = self.u.evaluate(t)
-                return -uval
-
-            t_min = 0.0
-            t_max = np.max(1 / np.abs(self.closed_loop.poles))
-            res = minimize_scalar(_objective, bounds=(t_min, t_max))
-            t_peak = res.x
-            return t_peak
-
-    @property
-    def rise_time(self) -> float | None:
-        """
-        Returns the rise time of the closed-loop unit-step response.
-        If the system is unstable, `None` is returned.
-
-        Notes
-        -----
-        The rise time is defined as the time required for the waveform to go
-        from 0.1 of the final value to 0.9 of the final value.
-        """
-        if self.u_oo is not None:
-            u_10 = 0.1 * self.u_oo
-            u_90 = 0.9 * self.u_oo
-            tfun_10 = lambda t: self.u.evaluate(t) - u_10
-            tfun_90 = lambda t: self.u.evaluate(t) - u_90
-            t_peak = self.peak_time
-            t_10 = root_scalar(tfun_10, bracket=[0.0, t_peak]).root
-            t_90 = root_scalar(tfun_90, bracket=[0.0, t_peak]).root
-            t_rise = t_90 - t_10
-            return t_rise
-
-    @property
-    def settling_time(self) -> float | None:
-        """
-        Returns the estimated settling time of the closed-loop unit-step
-        response. If the system is unstable, `None` is returned.
-
-        Notes
-        -----
-        The settling time is defined as the time required for the transient's
-        damped oscillations to reach and stay within +/- 2% of the steady-state
-        value.
-        """
-        if self.u_oo is not None:
-            dt = self.peak_time / 100
-            t = 0.0
-            times = []
-            while True:
-                u = self.u.evaluate(t)
-                if 0.98 * self.u_oo < u < 1.02 * self.u_oo:
-                    times.append(t)
-                    size = len(times)
-                    if size > 100:
-                        chunck = times[size - 100:]
-                        if all(chunck):
-                            return chunck[0]
+        if self.is_stable:
+            if bracket is None:
+                if self.dominant_pole_pair is not None:
+                    omega_n = abs(self.dominant_pole_pair[0])
+                    T_n = 2 * np.pi / omega_n
+                    t_ini = self.peak_time()
+                    t_fin = 100 * T_n
                 else:
-                    times.append(False)
-                t += dt
+                    raise ValueError(
+                        "The settling time cannot be determined. Use `bracket` to"
+                        "set the time interval in which the unit-step response"
+                        "settles."
+                    )
+            else:
+                t_ini, t_fin = bracket
+            t_values, y_values = self.closed_loop.unit_step_response(
+                lower_limit=t_ini,
+                upper_limit=t_fin
+            )
+            mask = (y_values >= 0.98 * self.y_oo) & (y_values <= 1.02 * self.y_oo)
+            if mask[-1]:
+                i = len(y_values) - 1
+                while mask[i] and i >= 0: i -= 1
+                t_settling = t_values[i + 1]
+                return t_settling
+            else:
+                raise ValueError(
+                    f"The unit-step response at the final time {t_fin} has not"
+                    "been settled already. Move the bracket further along the"
+                    "time axis."
+                )
+        return None
 
-    @property
-    def percent_overshoot(self) -> float:
-        """
-        Returns the percent overshoot of the closed-loop unit-step response if
-        the system is stable, else returns `None`.
+    def peak_time(self, bracket: tuple[float, float] | None = None) -> float | None:
+        """Returns the peak time of the unit-step response.
 
-        Percent overshoot is defined as the height the waveform overshoots the
-        steady-state or final value at the peak time, expressed as a percentage
-        of the steady-state value.
+        Parameters
+        ----------
+        bracket: optional
+            The start and final value of the time interval in which the response
+            reaches the peak value. If the closed-loop transfer function has a
+            dominant pole pair, `bracket` can be `None`. In that case, the
+            start time is set to zero and the final time is determined as 10
+            times the natural period of the dominant poles.
+
+        Raises
+        ------
+        ValueError:
+            If the closed-loop transfer function has no dominant pole pair and
+            `bracket` is not set (`None`).
+
+        Returns
+        -------
+        peak_time:
+            If the system is stable, has a dominant pole pair or `bracket` is
+            set.
+        None:
+            If the system is unstable.
         """
-        if self.u_oo is not None:
-            t_peak = self.peak_time
-            u_peak = self.u.evaluate(t_peak)
-            percent_overshoot = (u_peak - self.u_oo) / self.u_oo * 100
+        if self.is_stable:
+            if bracket is None:
+                if self.dominant_pole_pair is not None:
+                    omega_n = abs(self.dominant_pole_pair[0])
+                    T_n = 2 * np.pi / omega_n
+                    t_ini = 0.0
+                    t_fin = 10 * T_n
+                else:
+                    raise ValueError(
+                        "The peak time cannot be determined. Use `bracket` to"
+                        "set the time interval in which the unit-step response"
+                        "reaches the peak value."
+                    )
+            else:
+                t_ini, t_fin = bracket
+            t_values, y_values = self.closed_loop.unit_step_response(
+                lower_limit=t_ini,
+                upper_limit=t_fin
+            )
+            t_peak = t_values[np.argmax(y_values)]
+            return t_peak
+        return None
+
+    def rise_time(self, bracket: tuple[float, float] | None = None) -> float | None:
+        """Returns the rise time of the unit-step response.
+
+        Parameters
+        ----------
+        bracket:
+            The start and final value of the time interval in which the response
+            reaches the peak value. If the closed-loop transfer function has a
+            dominant pole pair, `bracket` can be `None`. In that case, the
+            start time is set to zero and the final time is determined as 10
+            times the natural period of the dominant poles.
+
+        Raises
+        ------
+        ValueError:
+            If the closed-loop transfer function has no dominant pole pair and
+            `bracket` is not set (`None`).
+
+        Returns
+        -------
+        rise_time:
+            If the system is stable, has a dominant pole pair or `bracket` is
+            set.
+        None:
+            If the system is unstable.
+        """
+        if self.is_stable:
+            u_10p = 0.1 * self.y_oo
+            u_90p = 0.9 * self.y_oo
+            t_peak = self.peak_time(bracket)
+
+            def _objective1(t: float) -> float:
+                u_value = self.unit_step_response.evaluate(t)
+                return u_value - u_10p
+
+            def _objective2(t: float) -> float:
+                u_value = self.unit_step_response.evaluate(t)
+                return u_value - u_90p
+
+            t_10p = root_scalar(_objective1, bracket=(0.0, t_peak)).root
+            t_90p = root_scalar(_objective2, bracket=(0.0, t_peak)).root
+            t_rise = t_90p - t_10p
+            return t_rise
+        return None
+
+    def percent_overshoot(self, bracket: tuple[float, float] | None = None) -> float | None:
+        """Returns the percent overshoot of the unit-step response.
+
+        Parameters
+        ----------
+        bracket: optional
+            The start and final value of the time interval in which the response
+            reaches the peak value. If the closed-loop transfer function has a
+            dominant pole pair, `bracket` can be `None`. In that case, the
+            start time is set to zero and the final time is determined as 10
+            times the natural period of the dominant poles.
+
+        Raises
+        ------
+        ValueError:
+            If the closed-loop transfer function has no dominant pole pair and
+            `bracket` is not set (`None`).
+
+        Returns
+        -------
+        percent_overshoot:
+            If the system is stable, has a dominant pole pair or `bracket` is
+            set.
+        None:
+            If the system is unstable.
+        """
+        if self.is_stable:
+            t_peak = self.peak_time(bracket)
+            y_peak = self.unit_step_response.evaluate(t_peak)
+            percent_overshoot = (y_peak - self.y_oo) / self.y_oo * 100.0
             return percent_overshoot
+        return None
 
 
 def sensitivity(f: sp.Expr, p: sp.Symbol) -> sp.Expr:
-    """
-    Sensitivity is defined as the ratio of the fractional change in the function
-    `f` to the fractional change in its parameter `p` when the fractional change
-    of the parameter approaches zero.
+    """Sensitivity is defined as the ratio of the fractional change in the
+    function `f` to the fractional change in its parameter `p`, when the
+    fractional change of parameter `p` approaches zero.
     """
     der_f = sp.diff(f, p)
     S = (p / f) * der_f
@@ -321,13 +414,12 @@ def sensitivity(f: sp.Expr, p: sp.Symbol) -> sp.Expr:
 
 
 def is_second_order_approx(feedback_system: FeedbackSystem):
-    """
-    Checks whether the feedback system can be approximated as a second-order
+    """Checks whether the feedback system can be approximated as a second-order
     system.
     """
     poles = set(feedback_system.closed_loop.poles_pcsl)
     zeros = feedback_system.closed_loop.zeros_pcsl
-    dominant_poles = [pole for pole in poles if pole.imag != 0]
+    dominant_poles = feedback_system.dominant_pole_pair
     other_poles = list(poles.difference(dominant_poles))
 
     def _is_far_pole(pole: complex) -> bool:
