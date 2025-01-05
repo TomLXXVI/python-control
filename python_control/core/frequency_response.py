@@ -53,7 +53,7 @@ class FrequencyResponse:
         gain, i.e. the open-loop transfer function F(s) with gain `K` = 1 and 
         `s` being replaced by `j * omega`.
         """
-        return self._GH_jw_expr
+        return self._K_value * self._GH_jw_expr
 
     @property
     def magnitude(self) -> sp.Expr:
