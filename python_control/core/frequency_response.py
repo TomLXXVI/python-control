@@ -9,7 +9,6 @@ import matplotlib.pyplot as plt
 from scipy.optimize import root_scalar, minimize_scalar
 from .symbols import s
 from .transfer_function import TransferFunction
-from .systems.feedback import FeedbackSystem
 
 
 omega = sp.Symbol('omega', real=True, positive=True)
