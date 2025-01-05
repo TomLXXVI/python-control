@@ -1,4 +1,4 @@
-"""Design SISO LTI feedback control systems via frequency response.
+"""Frequency Response Design of SISO LTI Negative Unity-Feedback Control Systems.
 
 References
 ----------
@@ -7,14 +7,14 @@ Nise, N. S. (2020). Control Systems Engineering, EMEA Edition, 8th Edition.
 import control as ct
 import numpy as np
 from scipy.optimize import root_scalar
-from ..core.frequency_response import OpenLoopFrequencyResponse
+from ..core.frequency_response import FrequencyResponse
 from ..core.transfer_function import TransferFunction
 from ..core.symbols import s
 
 
 def get_open_loop_gain(
     K_stat_err: float,
-    G_jw: OpenLoopFrequencyResponse
+    G_jw: FrequencyResponse
 ) -> float:
     """Given the required static error constant, returns the required open-loop
     gain K of the system.
@@ -41,7 +41,7 @@ def get_open_loop_gain(
 
 def find_frequency_for_phase_angle(
     phi_req: float,
-    G_jw: OpenLoopFrequencyResponse,
+    G_jw: FrequencyResponse,
     omega_limits: tuple[float, float] = (1.e-3, 1.e3),
     omega_num: int = 1000
 ) -> float:
@@ -95,7 +95,7 @@ def find_frequency_for_phase_angle(
 
 def find_frequency_for_magnitude(
     M_dB_req: float,
-    G_jw: OpenLoopFrequencyResponse,
+    G_jw: FrequencyResponse,
     K: float,
     omega_limits: tuple[float, float] = (1.e-3, 1.e3),
     omega_num: int = 1000
@@ -160,7 +160,7 @@ def find_frequency_for_magnitude(
 def gain_adjustment_for_magnitude(
     M_dB_req: float,
     omega: float,
-    G_jw: OpenLoopFrequencyResponse,
+    G_jw: FrequencyResponse,
     K_range: tuple[float, float]
 ) -> float:
     """Finds the open-loop gain K so that at the given frequency the magnitude
@@ -204,7 +204,7 @@ def gain_adjustment_for_magnitude(
 
 def gain_adjustment_for_phase_margin(
     phi_m_req: float,
-    G_jw: OpenLoopFrequencyResponse,
+    G_jw: FrequencyResponse,
     omega_limits: tuple[float, float] = (1.e-3, 1.e9)
 ) -> tuple[float, float]:
     """Finds the open-loop gain K for which the feedback system has the required
@@ -297,7 +297,7 @@ def gain_adjustment_for_phase_margin(
 def create_lag_compensator(
     phi_m_req: float,
     K_req: float,
-    G_jw: OpenLoopFrequencyResponse,
+    G_jw: FrequencyResponse,
     phi_m_compensation: float = 10.0,
     omega_limits: tuple[float, float] = (1.e-3, 1.e3),
     omega_num: int = 1000
@@ -378,7 +378,7 @@ def create_lag_compensator(
 def create_lead_compensator(
     phi_m_req: float,
     K_req: float,
-    G_jw: OpenLoopFrequencyResponse,
+    G_jw: FrequencyResponse,
     phi_m_compensation: float = 10.0,
     omega_limits: tuple[float, float] = (1.e-3, 1.e3),
     omega_num: int = 1000
@@ -453,7 +453,7 @@ def create_lead_compensator(
 def create_lag_lead_compensator(
     phi_m_req: float,
     K_req: float,
-    G_jw: OpenLoopFrequencyResponse,
+    G_jw: FrequencyResponse,
     omega_phi_m: float,
     phi_m_compensation: float = 5.0,
 ) -> TransferFunction:

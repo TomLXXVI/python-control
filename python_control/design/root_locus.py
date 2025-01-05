@@ -474,6 +474,23 @@ def design_PD_controller(
     met. Note that the gain of the PD controller is not determined by this
     function. To determine the gain use the function `design_unity_feedback` 
     next.
+    
+    How it works:
+    The transient response requirements determine the location of a dominant
+    complex pole pair in the s-plane. At these two points, the angle of the 
+    resulting open-loop transfer function must be 180°, so that the root locus 
+    of the resulting open-loop transfer function would pass through these 
+    dominant poles. 
+    This is accomplished by placing an extra zero on the real axis of the s-
+    plane. The location of this compensator zero on the real axis is determined 
+    such that the total angle of the resulting open-loop transfer function is 
+    180°.
+    
+    It may happen that the angle of the resulting open-loop transfer function
+    will differ from 180°. In that case the root locus of the resulting 
+    open-loop transfer function will not pass through the dominant complex 
+    pole pair, which means that the specified transient response requirements
+    cannot be met and a user warning will be issued.
 
     Parameters
     ----------
@@ -497,6 +514,13 @@ def design_PD_controller(
     KG_c:
         Transfer function of the PD-controller with symbolic gain (instance
         of class `TransferFunction`).
+    
+    Warnings
+    --------
+    UserWarning:
+        If the angle of the compensated open-loop transfer function differs from
+        180.0°, which means that the specified transient response requirements
+        cannot be met.
     """
     dominant_pole, _ = _get_dominant_poles(settling_time, peak_time, damping_ratio)
     sigma_dp, omega_dp = dominant_pole.real, dominant_pole.imag
@@ -516,8 +540,14 @@ def design_PD_controller(
     
     theta_G = np.radians(theta_G)
     zero_c = sigma_dp - omega_dp / np.tan(np.pi - theta_G)
+    alpha = np.arctan2(omega_dp, sigma_dp - zero_c) 
     
-    logger.debug(f"compensator zero: {zero_c}")
+    logger.debug(
+        f"compensator zero: {zero_c}"
+    )
+    logger.debug(
+        f"angular contribution of compensator zero: {np.degrees(alpha)}"
+    )
     
     KG_c = TransferFunction(gain_symbol * (s - zero_c))
 
@@ -533,6 +563,12 @@ def design_PD_controller(
         f"{theta_G_comp}"
     )
     
+    if round(theta_G_comp) != 180.0:
+        warnings.warn(
+            "Transient response requirements cannot be met.",
+            category=UserWarning
+        )
+    
     return KG_c
 
 
@@ -547,9 +583,9 @@ def design_lead_compensator(
     """Designs the transfer function for a lead compensator. Determines the 
     location of the compensator pole in the s-plane such that the required 
     transient response requirements are met, while the location of the 
-    compensator zero is already given. Note that the gain of the lead 
-    compensator is not determined by this function. To determine the gain use 
-    the function `design_unity_feedback` next.
+    compensator zero is already given by the user. Note that the gain of the 
+    lead compensator is not determined by this function. To determine the gain 
+    use the function `design_unity_feedback` next.
     
     How it works:
     The transient response requirements determine the location of a dominant
@@ -559,15 +595,22 @@ def design_lead_compensator(
     dominant poles. 
     This is accomplished by placing an extra zero and pole in the s-plane. The 
     zero of the compensator on the negative real axis of the s-plane is already 
-    selected. The location of the compensator pole on the real axis is then 
-    determined such that the total angle of the resulting open-loop transfer
-    function is 180°.
+    selected by the user. The location of the compensator pole on the real axis 
+    is then determined such that the total angle of the resulting open-loop 
+    transfer function is 180°.
     
-    In the case of a true lead compensator, the compensator pole lies to the 
-    left of the compensator zero on the real axis of the s-plane (is more 
-    negative than the compensator zero). However, when using this method, it may
-    happen that the compensator pole will be to the right of the compensator 
-    zero. If that's the case, the compensator is actually a lag compensator.   
+    In the case of a lead compensator, the compensator pole lies to the left of 
+    the compensator zero on the real axis of the s-plane (is more negative than 
+    the compensator zero). 
+    However, when using this method, it may happen that the compensator pole 
+    will be to the right of the compensator zero in order to meet the specified
+    transient response requirements (i.e. so that the root locus of the 
+    compensated open-loop transfer function would go through our dominant 
+    complex pole pair). If that's the case, the compensator is actually a lag 
+    compensator.
+    It may also happen that the compensator pole arrives on the positive real 
+    axis. In that case the compensated feedback system will be unstable and the
+    user will be warned about this.  
     
     Parameters
     ----------
@@ -596,6 +639,15 @@ def design_lead_compensator(
     KG_c:
         Transfer function of the lead compensator with symbolic gain (instance
         of class `TransferFunction`).
+    
+    Warnings
+    --------
+    UserWarning:
+        In case the compensator pole is situated on the positive real axis, 
+        which means that the specified transient response requirements cannot be
+        met as the compensated system will be unstable. Either another location
+        of the zero should be selected or the transient response requirements
+        need to be revised.
     """
     dominant_pole, _ = _get_dominant_poles(settling_time, peak_time, damping_ratio)
     sigma_dp, omega_dp = dominant_pole.real, dominant_pole.imag
@@ -613,8 +665,9 @@ def design_lead_compensator(
     )
 
     theta_G = np.radians(theta_G)
-    alpha = np.arctan(omega_dp / (sigma_dp - zero_c))
+    alpha = np.arctan2(omega_dp, sigma_dp - zero_c)
     pole_c = sigma_dp + omega_dp / np.tan(np.pi - theta_G - alpha)
+    beta = np.arctan2(omega_dp, sigma_dp - pole_c)
     
     if pole_c < zero_c:
         logger.debug(
@@ -624,6 +677,12 @@ def design_lead_compensator(
         logger.debug(
             f"LAG compensator zero: {zero_c}, pole: {pole_c}"
         )
+    logger.debug(
+        f"angular contribution of compensator zero: {np.degrees(alpha)}"
+    )
+    logger.debug(
+        f"angular contribution of compensator pole: {np.degrees(beta)}"
+    )
     
     KG_c = TransferFunction(gain_symbol * (s - zero_c) / (s - pole_c))
     
@@ -642,7 +701,8 @@ def design_lead_compensator(
     if pole_c > 0.0:
         warnings.warn(
             "The feedback system is unstable. Transient response requirements "
-            "cannot be fulfilled."
+            "cannot be fulfilled.",
+            category=UserWarning
         )
     return KG_c
 
@@ -684,7 +744,8 @@ def design_P_feedback(
         feedback_system=fbsys,
         forward_gain=K_fwd,
         controller=fbsys.G_c,
-        controller_gains=ControllerGains(fbsys.G_c.gain, None, None)
+        controller_gains=ControllerGains(fbsys.G_c.gain, None, None),
+        root_locus=RootLocus(fbsys.open_loop)
     )
     return design
 
@@ -1063,7 +1124,8 @@ def design_lag_lead_feedback(
     design = FeedbackSystemDesign(
         feedback_system=fbsys,
         forward_gain=K_fwd,
-        controller=fbsys.G_c
+        controller=fbsys.G_c,
+        root_locus=RootLocus(fbsys.open_loop)
     )
     return design
 
@@ -1144,7 +1206,8 @@ def design_rate_feedback(
         feedback_system=system,
         forward_gain=K1_value,
         feedback_gain=Kf_value,
-        controller=H
+        controller=H,
+        root_locus=RootLocus(system.open_loop)
     )
     return design
 
@@ -1214,7 +1277,8 @@ def design_minor_loop_feedback(
             feedback_system=minor_loop,
             forward_gain=1,
             feedback_gain=K_f_value,
-            controller=H_mnl
+            controller=H_mnl,
+            root_locus=RootLocus(minor_loop.open_loop)
         )
     else:
         raise ValueError(
@@ -1232,7 +1296,8 @@ def design_minor_loop_feedback(
         design_mjl = FeedbackSystemDesign(
             feedback_system=major_loop,
             forward_gain=K_value,
-            controller=major_loop.G_c
+            controller=major_loop.G_c,
+            root_locus=RootLocus(major_loop.open_loop)
         )
     else:
         raise ValueError(

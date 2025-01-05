@@ -2,7 +2,6 @@ from __future__ import annotations
 import warnings
 from typing import Callable
 from collections.abc import Sequence
-import cmath
 import sympy as sp
 import numpy as np
 import control as ct
@@ -17,44 +16,49 @@ omega = sp.Symbol('omega', real=True, positive=True)
 I = sp.I
 
 
-class OpenLoopFrequencyResponse:
-    """Class to derive and analyze the frequency response of a feedback system's
-    open-loop transfer function.
+class FrequencyResponse:
     """
-    def __init__(self, GH: TransferFunction) -> None:
-        """Creates an `OpenLoopFrequencyResponse` object.
+    Class for deriving and analyzing the frequency response of a transfer 
+    function.
+    """
+    def __init__(self, KGH: TransferFunction) -> None:
+        """Creates a `FrequencyResponse` object.
 
         Parameters
         ----------
-        GH:
-            Open-loop transfer function without open-loop gain K (i.e. K = 1).
-            Should the gain of GH not be equal to 1, GH is divided by this gain.
-            This actually means that inside the `OpenLoopFrequencyResponse`
-            object, the gain of the transfer function is not being considered.
+        KGH:
+            Transfer function.
+            
+        Notes
+        -----
+        The gain of the transfer function `KGH` is ignored when creating the 
+        `FrequencyResponse` object (i.e. the transfer function is divided by
+        its gain `K`, so that its gain becomes 1).
         """
-        self._GH_original = GH
-        K = GH.gain
-        if round(abs(K), 9) == 1.0:
-            self._GH = GH
-        else:
-            self._GH = GH / K
+        self._KGH_original = KGH
+        self._K_value = KGH.gain
+        # Divide the original transfer function by its gain.
+        self._GH = KGH / self._K_value
         self._zeros = self._GH.as_sympy.zeros()
         self._poles = self._GH.as_sympy.poles()
+        # Replace `s` in the transfer function Sympy expression by `j * omega`.        
         self._GH_jw_expr = self._GH.expr.subs(s, I * omega)
-        self.__G_jw_fun__ = self.__create_G_jw_fun()
+        # Create function that returns the frequency response as a complex 
+        # number for a given angular frequency `omega`.
+        self.__GH_jw_fun__ = self.__create_GH_jw_fun()
 
     @property
     def expr(self) -> sp.Expr:
-        """Returns the Sympy expression of the unity open-loop gain frequency
-        response, i.e. the open-loop transfer function HG(s) with s being
-        replaced by jw.
+        """Returns the Sympy expression of the frequency response with unity 
+        gain, i.e. the open-loop transfer function F(s) with gain `K` = 1 and 
+        `s` being replaced by `j * omega`.
         """
         return self._GH_jw_expr
 
     @property
     def magnitude(self) -> sp.Expr:
-        """Returns the Sympy expression of the magnitude of the unity open-loop
-        gain frequency response.
+        """Returns the Sympy expression of the magnitude of the frequency 
+        response with unity gain (`K` = 1).
         """
         zfs = [sp.Abs(I * omega - zero) for zero in self._zeros]
         pfs = [sp.Abs(I * omega - pole) for pole in self._poles]
@@ -66,15 +70,15 @@ class OpenLoopFrequencyResponse:
 
     @property
     def dB_magnitude(self) -> sp.Expr:
-        """Returns the Sympy expression of magnitude of the unity open-loop gain
-        frequency response expressed in decibels.
+        """Returns the Sympy expression of the magnitude of the frequency 
+        response with unity gain (`K` = 1) expressed in decibels.
         """
         return 20 * sp.log(self.magnitude, 10)
 
     @property
     def phase(self) -> sp.Expr:
-        """Returns the Sympy expression of the phase angle of the unity
-        open-loop gain frequency response.
+        """Returns the Sympy expression of the phase angle of the frequency 
+        response with unity gain (`K` = 1).
         """
         zts = [sp.arg(I * omega - zero) for zero in self._zeros]
         pts = [sp.arg(I * omega - pole) for pole in self._poles]
@@ -85,36 +89,30 @@ class OpenLoopFrequencyResponse:
         return phi
 
     @property
-    def normalized(self) -> '_NormalizedOpenLoopFrequencyResponse':
-        """Returns the normalized unity open-loop gain frequency response, being
-        an instance of class `NormalizedOpenLoopFrequencyResponse`.
-        """
-        return _NormalizedOpenLoopFrequencyResponse(self)
-
-    @property
     def transfer_function(self) -> TransferFunction:
         """Returns the underlying transfer function of the frequency response.
-        Note that the original open-loop gain is included in this transfer
-        function.
+        (Note that the original open-loop gain is included in the transfer
+        function.)
         """
-        return self._GH_original
+        return self._KGH_original
 
     def evaluate(
         self,
-        omega_: sp.Expr | int | float,
-        K: int | float = 1.0
+        omega_value: sp.Expr | int | float,
+        K: int | float | None = None
     ) -> tuple[sp.Expr | float, ...]:
         """Evaluates the frequency response at the given angular frequency and
-        given open-loop gain.
+        open-loop gain.
 
         Parameters
         ----------
-        omega_:
-            The angular frequency (rad/s) at which the frequency response needs
-            to be evaluated.
+        omega_value:
+            Value for the angular frequency (rad/s) at which the frequency 
+            response needs to be evaluated.
         K:
-            Open-loop gain at which the frequency response needs to be
-            evaluated.
+            Value for the gain at which the frequency response needs to be 
+            evaluated. If `None` (default), the gain of the original transfer 
+            function is taken.
 
         Returns
         -------
@@ -125,8 +123,9 @@ class OpenLoopFrequencyResponse:
         phi:
             Phase angle of the frequency response in degrees.
         """
-        GH_jw = self._GH_jw_expr.subs(omega, omega_)
-        if not isinstance(omega_, (int, float)):
+        K = K or self._K_value
+        GH_jw = self._GH_jw_expr.subs(omega, omega_value)
+        if not isinstance(omega_value, (int, float)):
             magn = K * sp.Abs(GH_jw)
             magn_dB = 20 * sp.log(magn, 10)
             phase = sp.arg(GH_jw) * 180 / sp.pi
@@ -142,19 +141,21 @@ class OpenLoopFrequencyResponse:
 
     def bode_plot(
         self,
-        K: float = 1.0,
+        K: float | None = None,
         omega_limits: tuple[float, float] = (0.1, 100),
         omega_num: int = 1000,
         title: str | None = '',
         **kwargs
     ) -> None:
-        """Plots a Bode diagram of the frequency response. By default the
-        magnitude is expressed in decibels and the phase angle in degrees.
+        """Plots a Bode diagram of the frequency response. By default, the
+        magnitude is returned in decibels and the phase angle in degrees.
 
         Parameters
         ----------
         K:
-            Open-loop gain.
+            Value for the gain at which the frequency response needs to be 
+            evaluated. If `None` (default), the gain of the original transfer 
+            function is taken.
         omega_limits:
             The lower and upper limit of the angular frequency (rad/s).
         omega_num:
@@ -162,9 +163,10 @@ class OpenLoopFrequencyResponse:
         title:
             Title to be displayed above the Bode diagram.
         **kwargs:
-            Additional keyword arguments, see Python Control Systems Library
-            documentation about function `bode_plot`.
+            Additional keyword arguments (refer to *Python Control Systems 
+            Library* documentation on the function `bode_plot`).
         """
+        K = K or self._K_value
         KGH = K * self._GH
         freq_resp = ct.frequency_response(
             KGH.as_ct,
@@ -184,19 +186,20 @@ class OpenLoopFrequencyResponse:
 
     def nyquist_plot(
         self,
-        K: float = 1.0,
+        K: float | None = None,
         omega_limits: tuple[float, float] = (0.1, 100),
         omega_num: int = 1000,
         title: str | None = '',
         **kwargs
     ) -> None:
-        """Plots the Nyquist diagram of the open-loop transfer function GH with
-        the specified open-loop gain K.
+        """Plots the Nyquist diagram of the transfer function.
 
         Parameters
         ----------
         K:
-            Open-loop gain.
+            Value for the gain at which the frequency response needs to be 
+            evaluated. If `None` (default), the gain of the original transfer 
+            function is taken.
         omega_limits:
             The lower and upper limit of the angular frequency (rad/s).
         omega_num:
@@ -204,9 +207,10 @@ class OpenLoopFrequencyResponse:
         title:
             Title to be displayed above the Nyquist diagram.
         **kwargs:
-            Additional keyword arguments, see Python Control Systems Library
-            documentation about function `nyquist_plot`.
+            Additional keyword arguments (refer to *Python Control Systems 
+            Library* documentation on the function `nyquist_plot`).
         """
+        K = K or self._K_value
         KGH = K * self._GH
         resp = ct.nyquist_response(
             KGH.as_ct,
@@ -223,38 +227,40 @@ class OpenLoopFrequencyResponse:
     @property
     def marginal_stability_gain(self) -> tuple[float, float]:
         """Returns the open-loop gain `K` for which the closed-loop feedback
-        system becomes unstable and with which angular frequency (rad/s) it will
-        oscillate.
+        system becomes unstable and the angular frequency (rad/s) at which it 
+        will be oscillating then.
         """
-        # Get imaginary part of the frequency response:
-        imag_HG_jw = sp.nsimplify(sp.im(self._GH_jw_expr))
-        imag_HG_jw_num, _ = imag_HG_jw.as_numer_denom()
+        # Get imaginary part of the frequency response (the imaginary part is
+        # the numerator in the expression of the phase angle of GH(jw); when
+        # the imaginary part becomes zero, this means that the phase angle is
+        # either 0° or +/- 180°).
+        imag_GH_jw = sp.nsimplify(sp.im(self._GH_jw_expr))
+        imag_GH_jw_num, _ = imag_GH_jw.as_numer_denom()
         # Find omegas for which the imaginary part of the frequency response is
         # zero (i.e. for which the phase angle of the frequency response is
         # +/- 180° or 0°):
-        sol_w = sp.solve(imag_HG_jw_num, omega)
-        # Get the magnitude, magnitude in decibels and phase angle of HG(jw)
-        # for each omega in sol_w:
-        tups = [self.evaluate(w.evalf()) for w in sol_w]
-        # Get the magnitude of HG(jw) that goes with a phase angle of 180°:
+        sol_w = sp.solve(imag_GH_jw_num, omega)
+        # Get the magnitude (also in decibels) and phase angle of GH(jw)
+        # for each omega in `sol_w`:
+        tups = [self.evaluate(w.evalf(), K=1.0) for w in sol_w]
+        # Get the magnitude of GH(jw) that goes with a phase angle of 180°:
         M_180, omega_ms, K_ms = None, None, None
         for i, (M, M_dB, phi) in enumerate(tups):
             if abs(phi) == 180.0:
-                M_180 = M
-                omega_ms = sol_w[i]
+                M_180 = float(M)
+                omega_ms = float(sol_w[i])
                 break
-        # Get the value, known as gain K, with which the magnitude M_180 needs
-        # to be multiplied to get 1. In that case the denominator 1 + HG(s=jw)
-        # of the closed-loop transfer function will become zero (as the phase
-        # angle = 180°) and the system is called unstable.
-        if M_180 is not None:
-            K_ms = 1 / M_180
+        # Get the gain `K_ms` with which the magnitude `M_180` needs to be 
+        # multiplied to get 1. In that case the denominator 1 + F(jw) of the 
+        # closed-loop transfer function will become zero (as the phase angle 
+        # = 180°) and the system is called marginally unstable.
+        if M_180 is not None: K_ms = 1 / M_180
         return K_ms, omega_ms
 
     @property
     def stability_gain_range(self) -> tuple[float, float] | None:
-        """Returns the lower limit and upper limit for the open-loop gain K
-        between which the closed-loop feedback system has stability.
+        """Returns the lower and upper limit of the values for the open-loop 
+        gain `K` between which the closed-loop feedback system is stable.
         """
         K_ms = self.marginal_stability_gain[0]
         try:
@@ -263,7 +269,7 @@ class OpenLoopFrequencyResponse:
             raise ValueError(
                 "The gain for marginal stability could not be determined."
                 f"Got K = {K_ms} for marginal stability."
-            )
+            ) from None
         left_poles = [pole for pole in self._GH.poles if pole.real < 0]
         right_poles = [pole for pole in self._GH.poles if pole.real > 0]
         if not right_poles:
@@ -277,58 +283,69 @@ class OpenLoopFrequencyResponse:
         else:
             return None
 
-    def gain_margin(self, K: float) -> tuple[float, float]:
-        """Returns the margin expressed in decibels that is still available for
-        changes in open-loop gain before the system with the specified open-loop
+    def gain_margin(self, K: float | None = None) -> tuple[float, float]:
+        """Returns the margin in decibels that remains available for changes in 
+        open-loop gain before the feedback system with the specified open-loop
         gain `K` becomes unstable. Also returns the angular frequency at which
         the Nyquist diagram crosses the negative real axis (i.e. the frequency
         for which the phase angle of the open-loop frequency response is
         +/- 180°).
+        
+        Parameters
+        ----------
+        K:
+            Value for the gain at which the frequency response needs to be 
+            evaluated. If `None` (default), the gain of the original transfer 
+            function is taken.
         """
+        K = K or self._K_value
         # Get imaginary part of the frequency response:
         imag_GH_jw = sp.im(self._GH_jw_expr)
+        imag_GH_jw_num, _ = imag_GH_jw.as_numer_denom()
         # Find omegas for which the imaginary part of the frequency response is
         # zero (i.e. for which the phase angle of the frequency response is
         # +/- 180° or 0°):
-        sol_w = sp.solve(imag_GH_jw, omega)
-        # Get the magnitude, magnitude in decibels and phase angle of HG(jw)
+        sol_w = sp.solve(imag_GH_jw_num, omega)
+        # Get the magnitude, magnitude in decibels and phase angle of GH(jw)
         # for each omega in sol_w:
         tups = [self.evaluate(w, K) for w in sol_w]
-        # Get the magnitude of HG(jw) that goes with a phase angle of 180°:
+        # Get the magnitude of GH(jw) that goes with a phase angle of 180°:
         M_180, omega_180 = None, None
         for i, (M, M_dB, phi) in enumerate(tups):
             if abs(phi) == 180.0:
-                M_180 = M
-                omega_180 = sol_w[i]
+                M_180 = float(M)
+                omega_180 = float(sol_w[i])
                 break
-        # Get the value with which the magnitude M_180 needs to be multiplied to
-        # get 1 and the system becoming unstable.
+        # Get the value with which the magnitude `M_180` needs to be multiplied 
+        # to get 1 and the system becoming unstable.
         if M_180 is not None:
-            K = float(1 / M_180)
+            K = 1 / M_180
             return 20 * np.log10(K), omega_180
 
     def phase_margin(
         self,
-        K: float,
+        K: float | None = None,
         omega_limits: tuple[float, float] = (1.e-3, 1.e9)
     ) -> tuple[float, float]:
         """Returns the phase margin in degrees that remains available for
-        changes in phase shift before the system with specified open-loop
-        gain `K` becomes unstable. Also returns the angular frequency at which
-        the magnitude of the open-loop frequency response is equal to 1 (0 dB).
+        changes in phase shift before the feedback system with the specified 
+        open-loop gain `K` becomes unstable. Also returns the angular frequency 
+        at which the magnitude of the open-loop frequency response is equal to 
+        1 (0 dB).
 
         Parameters
         ----------
         K:
-            Open-loop gain of the feedback system.
+            Value for the gain at which the frequency response needs to be 
+            evaluated. If `None` (default), the gain of the original transfer 
+            function is taken.
         omega_limits:
             Lower and upper limit of the frequency range where the root-finding
             algorithm searches for the frequency at which the magnitude of the
             open-loop frequency response is equal to 1 (0 dB).
             If no solution can be found within the specified frequency range, a
-            `ValueError` is raised. In that case, either the lower limit of the
-            frequency range can be decreased, or the upper limit can be
-            increased.
+            `ValueError` is raised. In that case, either the lower limit can be 
+            decreased, or the upper limit can be increased.
 
         Returns
         -------
@@ -339,8 +356,9 @@ class OpenLoopFrequencyResponse:
             the frequency at which the magnitude of the frequency response is
             equal to 1 (0 dB).
         """
-        # Find omega for which the magnitude of the frequency response with
-        # specified open-loop gain K equals 1.
+        K = K or self._K_value
+        # Find the omega for which the magnitude of the frequency response with
+        # open-loop gain K equals 1.
         M_expr = (K * self.magnitude).evalf()
         M_fun = sp.lambdify(omega, M_expr, 'numpy')
 
@@ -357,7 +375,7 @@ class OpenLoopFrequencyResponse:
             raise ValueError(
                 f"No frequency found where the magnitude is equal to 1 "
                 f"between {omega_limits[0]:.3e} and {omega_limits[1]:.3e} rad/s."
-            )
+            ) from None
         else:
             omega_1 = sol.root
             *_, phi = self.evaluate(omega_1, K)
@@ -366,7 +384,7 @@ class OpenLoopFrequencyResponse:
 
     def nichols_plot(
         self,
-        K: float = 1.0,
+        K: float | None = None,
         omega_limits: tuple[float, float] = (0.1, 100),
         omega_num: int = 1000,
         title: str | None = '',
@@ -378,7 +396,9 @@ class OpenLoopFrequencyResponse:
         Parameters
         ----------
         K:
-            Open-loop gain.
+            Value for the gain at which the frequency response needs to be 
+            evaluated. If `None` (default), the gain of the original transfer 
+            function is taken.
         omega_limits:
             The lower and upper limit of the angular frequency (rad/s).
         omega_num:
@@ -389,6 +409,7 @@ class OpenLoopFrequencyResponse:
             Additional keyword arguments, see Python Control Systems Library
             documentation about function `nichols_plot`.
         """
+        K = K or self._K_value
         KGH = K * self._GH
         freq_resp = ct.frequency_response(
             KGH.as_ct,
@@ -402,7 +423,7 @@ class OpenLoopFrequencyResponse:
         )
         plt.show()
 
-    def __create_G_jw_fun(self) -> Callable:
+    def __create_GH_jw_fun(self) -> Callable:
         """Creates a function that takes an angular frequency (float) or range
         of angular frequencies (Numpy array) and returns the frequency response
         as a complex number or a range of complex numbers (Numpy array).
@@ -420,207 +441,144 @@ class OpenLoopFrequencyResponse:
     def __call__(
         self,
         omega_: float | np.ndarray,
-        K: float = 1.0
+        K: float | None = None
     ) -> complex | np.ndarray:
         """Returns the frequency response of the system at the specified angular
         frequency `omega_` (rad/s) or range of angular frequencies (Numpy array)
-        and the specified open-loop gain `K`.
+        and the specified open-loop gain `K`. If `K` is `None`, the gain of
+        the original transfer function is used.
         If a single angular frequency `omega_` is passed, a single complex
         number is returned. If a Numpy array of angular frequencies is passed, a
         Numpy array of complex numbers is returned.
         """
         with warnings.catch_warnings(action='ignore', category=RuntimeWarning):
-            G_jw_values = self.__G_jw_fun__(omega_)
-            G_jw_values *= K
+            G_jw_values = self.__GH_jw_fun__(omega_)
+            G_jw_values *= K or self._K_value
             return G_jw_values
 
-
-class _NormalizedOpenLoopFrequencyResponse:
-    """Class to derive the normalized frequency response of a system's
-    open-loop transfer function.
-
-    A transfer function with K = 1 can be represented in a factorized form:
-                  (s - z1) * (s - z2) * ... * (s - zk)
-    KG(jw) =  --------------------------------------------
-               s^m * (s - p1) * (s - p2) * ... * (s - pn)
-
-    The frequency response is normalized by dividing each factor of the
-    factorized transfer function by its zero or pole and dividing the gain K
-    by itself (so K is always 1 after normalizing).
-    """
-    def __init__(self, freq_resp: OpenLoopFrequencyResponse) -> None:
-        """Creates a `NormalizedOpenLoopFrequencyResponse` object.
+    def get_peak_magnitude(
+        self,
+        K: float | None = None,
+        omega_limits: tuple[float, float] = (0.01, 1000),
+        omega_num: int = 1000
+    ) -> tuple[float, float]:
+        """Returns the peak value of the closed-loop frequency response
+        magnitude within the specified angular frequency range, and the angular 
+        frequency (rad/s) at which this peak value occurs.
 
         Parameters
         ----------
-        freq_resp:
-            Instance of `OpenLoopFrequencyResponse`.
-        """
-        self._freq_resp = freq_resp
-        self._GH_jw_norm = self._normalize()
-
-    def _normalize(self) -> sp.Expr:
-        """Creates the Sympy expression of the normalized frequency response."""
-        # magnitude
-        zfs = [
-            sp.Abs((I * omega - zero) / -zero)
-            if zero != 0 else sp.Abs(I * omega)
-            for zero in self._freq_resp._zeros
-        ]
-        pfs = [
-            sp.Abs((I * omega - pole) / -pole)
-            if pole != 0 else sp.Abs(I * omega)
-            for pole in self._freq_resp._poles
-        ]
-        magn_num, magn_den = 1, 1
-        for zf in zfs: magn_num *= zf
-        for pf in pfs: magn_den *= pf
-        magn = magn_num / magn_den
-
-        # phase angle
-        zts = [
-            sp.arg((I * omega - zero) / -zero)
-            if zero != 0 else sp.arg(I * omega)
-            for zero in self._freq_resp._zeros
-        ]
-        pts = [
-            sp.arg((I * omega - pole) / -pole)
-            if pole != 0 else sp.arg(I * omega)
-            for pole in self._freq_resp._poles
-        ]
-        z_phi, p_phi = 0, 0
-        for zt in zts: z_phi += zt
-        for pt in pts: p_phi += pt
-        phi = z_phi - p_phi
-
-        G_jw_norm = magn * sp.exp(I * phi)
-        return G_jw_norm
-
-    @property
-    def expr(self) -> sp.Expr:
-        """Returns the Sympy expression of the unity open-loop gain, normalized
-        frequency response.
-        """
-        return self._GH_jw_norm
-
-    @property
-    def magnitude(self) -> sp.Expr:
-        """Returns the Sympy expression of the magnitude of the unity open-loop
-        gain, normalized frequency response.
-        """
-        return sp.Abs(self._GH_jw_norm)
-
-    @property
-    def dB_magnitude(self) -> sp.Expr:
-        """Returns the Sympy expression of the magnitude of the unity open-loop
-        gain, normalized frequency response expressed in decibels.
-        """
-        return 20 * sp.log(self.magnitude, 10)
-
-    @property
-    def phase(self) -> sp.Expr:
-        """Returns the Sympy expression of the phase angle of the unity
-        open-loop gain, normalized frequency response.
-        """
-        return sp.arg(self._GH_jw_norm)
-
-    def evaluate(
-        self,
-        w: sp.Expr | int | float
-    ) -> tuple[sp.Expr | float, ...]:
-        """Evaluates the normalized open-loop frequency response at the given
-        angular frequency.
-
-        Parameters
-        ----------
-        w:
-            The angular frequency (rad/s) at which the normalized frequency
-            response needs to be evaluated.
-
-        Returns
-        -------
-        M:
-            Magnitude of the normalized frequency response.
-        M_dB:
-            Magnitude in decibels.
-        phi:
-            Phase angle of the normalized frequency response in degrees.
-        """
-        G_norm = self._GH_jw_norm.subs(omega, w)
-        if not isinstance(w, (int, float)):
-            magn = sp.Abs(G_norm)
-            magn_dB = 20 * sp.log(magn, 10)
-            phase = sp.arg(G_norm) * 180 / sp.pi
-            magn = sp.simplify(magn).evalf()
-            magn_dB = sp.simplify(magn_dB).evalf()
-            phase = phase.evalf()
-        else:
-            G_norm = complex(G_norm.evalf())
-            magn = np.abs(G_norm)
-            magn_dB = 20 * np.log10(magn)
-            phase = np.angle(G_norm, deg=True)
-        return magn, magn_dB, phase
-
-    def _get_frequency_response_data(
-        self,
-        omega_limits: tuple[float, float] = (0.1, 100),
-        omega_num: int = 1000,
-    ) -> ct.FrequencyResponseData:
-        """Creates an instance of class `FrequencyResponseData`, class used by
-        Python Control Systems Library to plot Bode diagrams, etc. This helper
-        method is used below in method `bode_plot`.
-        """
-        omega_arr = np.linspace(omega_limits[0], omega_limits[1], omega_num)
-
-        def _get_frequency_response(w: float) -> complex:
-            M, _, phase = self.evaluate(w)
-            M = float(M)
-            phase = np.radians(float(phase))
-            G_jw_norm = cmath.rect(M, phase)
-            return G_jw_norm
-
-        freq_resp_list = [_get_frequency_response(w) for w in omega_arr]
-        freq_resp_data = ct.FrequencyResponseData(
-            freq_resp_list, omega_arr,
-            sysname='sys [0]'
-        )
-        return freq_resp_data
-
-    def bode_plot(
-        self,
-        omega_limits: tuple[float, float] = (0.1, 100),
-        omega_num: int = 1000,
-        title: str | None = '',
-        **kwargs
-    ) -> None:
-        """Plots a Bode diagram of the normalized open-loop frequency response.
-        By default the magnitude is expressed in decibels and the phase angle in
-        degrees.
-
-        Parameters
-        ----------
+        K:
+            Value for the gain at which the frequency response needs to be 
+            evaluated. If `None` (default), the gain of the original transfer 
+            function is taken.
         omega_limits:
             The lower and upper limit of the angular frequency (rad/s).
         omega_num:
-            Number of calculation points between the lower and upper limit.
-        title:
-            Title to be displayed above the Bode diagram.
-        **kwargs:
-            Additional keyword arguments, see Python Control Systems Library
-            documentation about function `bode_plot`.
+            Number of calculating points between the lower and upper limit.
+
+        Returns
+        -------
+        M_p:
+            Peak value of the closed-loop frequency response magnitude.
+        omega_p:
+            Angular frequency at which the peak value occurs (rad/s).
         """
-        freq_resp_data = self._get_frequency_response_data(omega_limits, omega_num)
-        ct.bode_plot(
-            freq_resp_data,
-            omega_limits=omega_limits,
-            omega_num=omega_num,
-            dB=kwargs.pop('dB', True),
-            deg=kwargs.pop('deg', True),
-            wrap_phase=kwargs.pop('wrap_phase', True),
-            title=title,
-            **kwargs
-        )
-        plt.show()
+        K = K or self._K_value
+        omega_arr = np.linspace(omega_limits[0], omega_limits[1], omega_num)
+        T_jw_vals = self(omega_arr, K)
+        T_jw_magn = np.abs(T_jw_vals)
+        i_max = np.argmax(T_jw_magn)
+        omega_1 = omega_arr[i_max - 1]
+        omega_2 = omega_arr[i_max + 1]
+
+        def _objective(omega_: float) -> float:
+            T_jw_val = self(omega_, K)
+            T_jw_magn = np.abs(T_jw_val)
+            return -T_jw_magn
+
+        res = minimize_scalar(_objective, bounds=(omega_1, omega_2))
+        omega_p = res.x
+        T_jw_val_max = self(omega_p, K)
+        M_p = np.abs(T_jw_val_max)
+        return M_p, omega_p
+
+    def get_bandwidth_frequency(
+        self,
+        K: float | None = None,
+        omega_limits: tuple[float, float] = (0.01, 1000),
+        omega_num: int = 1000
+    ) -> tuple[float, float]:
+        """Returns the bandwidth frequency of the closed-loop frequency
+        response.
+
+        Parameters
+        ----------
+        K:
+            Value for the gain at which the frequency response needs to be 
+            evaluated. If `None` (default), the gain of the original transfer 
+            function is taken.
+        omega_limits:
+            The lower and upper limit of the angular frequency (rad/s) range
+            between which the bandwidth frequency can be searched for.
+        omega_num:
+            Number of calculating points between the lower and upper limit.
+
+        Returns
+        -------
+        omega_bdw:
+            Bandwidth frequency of the closed-loop frequency response.
+        M_bdw:
+            Magnitude of the closed-loop frequency response at the bandwidth
+            frequency.
+
+        Raises
+        ------
+        ValueError
+            If the bandwith frequency cannot be found within the specified
+            frequency range `omega_limits`.
+        """
+        K = K or self._K_value
+        # Determine the dB-magnitude at the bandwidth frequency.
+        T_jw_0 = self(0.0, K)
+        T_jw_magn_dB_0 = 20 * np.log10(np.abs(T_jw_0))
+        T_jw_magn_dB_bdw = T_jw_magn_dB_0 - 3.0
+
+        # Calculate the dB-magnitude of the closed-loop frequency response at
+        # `omega_num` points between the specified frequency limits
+        # `omega_limits`.
+        omega_range = np.linspace(omega_limits[0], omega_limits[1], omega_num)
+        # noinspection PyTypeChecker
+        T_jw_vals = self(omega_range, K)
+        T_jw_magn_dB = 20 * np.log10(np.abs(T_jw_vals))
+
+        # Determine the index of the dB-magnitude which is closest to the dB-
+        # magnitude at the bandwidth frequency. Using this index a bracket can
+        # be set within which the bandwidth frequency can be determined more
+        # accurately using a root-finding algorithm.
+        i = np.abs(T_jw_magn_dB_bdw - T_jw_magn_dB).argmin()
+        k = i - 1 if i > 0 else 0
+        l = i + 1 if i < omega_range.size - 1 else i
+        # noinspection PyTypeChecker
+        bracket = sorted([omega_range[k], omega_range[l]])
+
+        def _objective(omega_: float) -> float:
+            T_jw_val = self(omega_, K)
+            T_jw_magn_dB = 20 * np.log10(np.abs(T_jw_val))
+            err = T_jw_magn_dB_bdw - T_jw_magn_dB
+            return err
+
+        try:
+            sol = root_scalar(_objective, bracket=bracket)
+        except ValueError:
+            raise ValueError(
+                "Bandwidth frequency could not be determined within the"
+                f"frequency range {bracket[0]}...{bracket[1]} rad/s."
+            ) from None
+        else:
+            omega_bdw = sol.root
+            T_jw_magn_bdw = 10 ** (T_jw_magn_dB_bdw / 20)
+            return omega_bdw, T_jw_magn_bdw
 
 
 def plot_bode_diagrams(
@@ -630,8 +588,7 @@ def plot_bode_diagrams(
     names: Sequence[str] | None = None,
     **kwargs
 ) -> None:
-    """Plots the Bode diagram of multiple open-loop frequency responses in a
-    single chart.
+    """Plots the Bode diagram of multiple frequency responses in a single chart.
 
     Parameters
     ----------
@@ -678,8 +635,9 @@ def plot_bode_diagrams(
 
 
 class ClosedLoopFrequencyResponse:
-    """Class to derive and analyze the frequency response of a feedback system's
-    closed-loop transfer function.
+    """
+    Class for deriving and analyzing the frequency response of a closed-loop
+    feedback system.
     """
     def __init__(self, feedback_system: FeedbackSystem) -> None:
         """Creates a `ClosedLoopFrequencyResponse` object.
@@ -768,8 +726,8 @@ class ClosedLoopFrequencyResponse:
         omega_num: int = 1000
     ) -> tuple[float, float]:
         """Returns the peak value of the closed-loop frequency response
-        magnitude within the specified angular frequency range, and also the
-        angular frequency (rad/s) at which this peak value exists.
+        magnitude within the specified angular frequency range, and the angular 
+        frequency (rad/s) at which this peak value occurs.
 
         Parameters
         ----------
@@ -783,7 +741,7 @@ class ClosedLoopFrequencyResponse:
         M_p:
             Peak value of the closed-loop frequency response magnitude.
         omega_p:
-            Angular frequency at which the peak value exists (rad/s).
+            Angular frequency at which the peak value occurs (rad/s).
         """
         omega_arr = np.linspace(omega_limits[0], omega_limits[1], omega_num)
         # noinspection PyTypeChecker
@@ -808,7 +766,7 @@ class ClosedLoopFrequencyResponse:
         self,
         omega_limits: tuple[float, float] = (0.01, 1000),
         omega_num: int = 1000
-    ) -> float:
+    ) -> tuple[float, float]:
         """Returns the bandwidth frequency of the closed-loop frequency
         response.
 
@@ -822,9 +780,12 @@ class ClosedLoopFrequencyResponse:
 
         Returns
         -------
-        omega_bdw
-            Bandwith frequency of the closed-loop frequency response.
-
+        omega_bdw:
+            Bandwidth frequency of the closed-loop frequency response.
+        M_bdw:
+            Magnitude of the closed-loop frequency response at the bandwidth
+            frequency.
+        
         Raises
         ------
         ValueError
@@ -866,22 +827,23 @@ class ClosedLoopFrequencyResponse:
             raise ValueError(
                 "Bandwidth frequency could not be determined within the"
                 f"frequency range {bracket[0]}...{bracket[1]} rad/s."
-            )
+            ) from None
         else:
             omega_bdw = sol.root
-            return omega_bdw
+            T_jw_magn_bdw = 10**(T_jw_magn_dB_bdw / 20)
+            return omega_bdw, T_jw_magn_bdw
 
 
 class ClosedLoopTransientResponse:
-    """Class encapsulating equations which represent relationships between a
-    system's open-loop (phase margin) or closed-loop frequency response (peak
+    """Class that encapsulates equations which represent a relationship between 
+    a system's open-loop (phase margin) or closed-loop frequency response (peak
     magnitude, peak frequency, natural frequency, and bandwidth frequency) and
     the transient response of the closed-loop system (damping ratio, settling
     time, and peak time).
 
     Notes
     -----
-    These equations are valid on condition that the open-loop system can be
+    These equations are only valid on condition that the open-loop system can be
     approximated as a second-order system.
     """
     def __init__(self):

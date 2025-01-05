@@ -316,9 +316,11 @@ class TransferFunction:
         while dc_gain == float('inf'):
             T = self * s
             dc_gain = T.dc_gain
-        prod_zeros = np.prod(T.zeros)
-        prod_poles = np.prod(T.poles)
-        K = (dc_gain / (prod_zeros / prod_poles)).real
+        prod_zeros = np.prod([-z for z in T.zeros])
+        prod_poles = np.prod([-p for p in T.poles])
+        K = (dc_gain / (prod_zeros / prod_poles))
+        if isinstance(K, complex):
+            K = K.real
         return K
 
     @property
@@ -792,3 +794,12 @@ def create_time_delay(
     num, den = ct.pade(T, n, numdeg)
     tf = TransferFunction.from_coefficients(num, den)
     return tf
+
+
+def normalize(F: TransferFunction) -> TransferFunction:
+    zfs = [(s - zero) / -zero if zero != 0 else s for zero in F.zeros]
+    pfs = [(s - pole) / -pole if pole != 0 else s for pole in F.poles]
+    numerator = sp.Mul(*zfs) if zfs else sp.Float(1)
+    denominator = sp.Mul(*pfs) if pfs else sp.Float(1)
+    F_n = TransferFunction(numerator / denominator)
+    return F_n
