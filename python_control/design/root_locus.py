@@ -53,7 +53,7 @@ def _create_unity_feedback_system(
         Transfer function of the plant or process.
     name:
         Optional name to identify the system, e.g. in the legend of a diagram.
-    gain_symbol:
+    gain_symbol: optional
         Sympy symbol representing the overall forward-path gain used in the
         transfer function of the controller/compensator that will be replaced by
         the given gain value. By default the predefined Sympy symbol `K` is
@@ -354,7 +354,7 @@ def design_unity_feedback(
         Required damping ratio of the feedback system.
     name:
         An optional name to identify the feedback system.
-    gain_symbol:
+    gain_symbol: optional
         The Sympy symbol that is used to represent the forward-path gain in the
         expression of the compensator's transfer function `KG_c`. The default
         symbol is the predefined symbol `K` from the `python_control` package.
@@ -416,7 +416,7 @@ def design_lag_compensator(
     compensator_pole:
         Selected pole of the compensator transfer function. Depends on the
         construction of the compensator, but should be near zero.
-    gain_symbol:
+    gain_symbol: optional
         Sympy symbol to be used to represent the gain of the lag compensator.
         The default symbol is the predefined symbol `K` from the
         `python_control` package.
@@ -504,7 +504,7 @@ def design_PD_controller(
         Required damping ratio of the PD-controlled system.
     G_plant:
         Transfer function of the plant or process.
-    gain_symbol:
+    gain_symbol: optional
         Sympy symbol to be used to represent the gain of the PD controller.
         The default symbol is the predefined symbol `K` from the
         `python_control` package.
@@ -629,7 +629,7 @@ def design_lead_compensator(
         negative real axis at a distance from the origin in the neighborhood of
         the natural frequency of the uncompensated system's dominant pole (1/4
         to 1 times the value of the natural frequency).
-    gain_symbol:
+    gain_symbol: optional
         Sympy symbol to be used to represent the gain of the compensator.
         The default symbol is the predefined symbol `K` from the
         `python_control` package.
@@ -643,11 +643,17 @@ def design_lead_compensator(
     Warnings
     --------
     UserWarning:
-        In case the compensator pole is situated on the positive real axis, 
+        - In case the compensator pole is situated on the positive real axis, 
         which means that the specified transient response requirements cannot be
         met as the compensated system will be unstable. Either another location
         of the zero should be selected or the transient response requirements
         need to be revised.
+        - In case the compensator pole > compensator zero, which means the 
+        compensator is actually a lag compensator.
+        - In case the phase angle of the compensated open-loop transfer function
+        is different from 180°, which means that the root locus of the 
+        compensated feedback system cannot pass through the dominant pole that
+        is needed to meet the transient response requirements. 
     """
     dominant_pole, _ = _get_dominant_poles(settling_time, peak_time, damping_ratio)
     sigma_dp, omega_dp = dominant_pole.real, dominant_pole.imag
@@ -677,6 +683,13 @@ def design_lead_compensator(
         logger.debug(
             f"LAG compensator zero: {zero_c}, pole: {pole_c}"
         )
+    
+    if pole_c > zero_c:
+        warnings.warn(
+            "Instead of a lead compensator, the compensator is actually a"
+            "lag compensator."
+        )
+    
     logger.debug(
         f"angular contribution of compensator zero: {np.degrees(alpha)}"
     )
@@ -698,6 +711,12 @@ def design_lead_compensator(
         f"{theta_G_comp}"
     )
     
+    if round(theta_G_comp) != 180.0:
+        warnings.warn(
+            "Transient response requirements cannot be met.",
+            category=UserWarning
+        )
+        
     if pole_c > 0.0:
         warnings.warn(
             "The feedback system is unstable. Transient response requirements "
@@ -779,7 +798,7 @@ def design_PD_feedback(
         Transfer function of the plant or process.
     name:
         Optional name to identify the system.
-    gain_symbol:
+    gain_symbol: optional
         Sympy symbol to be used to represent the gain of the PD-controller.
         The default symbol is the predefined symbol `K` from the
         `python_control` package.
@@ -855,7 +874,7 @@ def design_PID_feedback(
         complex plane).
     name:
         Optional name to identify the system.
-    gain_symbol:
+    gain_symbol: optional
         Sympy symbol to be used to represent the gain of the PID-controller.
         The default symbol is the predefined symbol `K` from the
         `python_control` package.
@@ -928,7 +947,7 @@ def design_lag_feedback(
         Required damping ratio of the feedback system.
     name:
         Optional name to identify the system.
-    gain_symbol:
+    gain_symbol: optional
         Sympy symbol to be used to represent the gain of the lag compensator.
         The default symbol is the predefined symbol `K` from the
         `python_control` package.
@@ -998,7 +1017,7 @@ def design_lead_feedback(
         to 1 times the value of the natural frequency).
     name:
         Optional name to identify the system.
-    gain_symbol:
+    gain_symbol: optional
         Sympy symbol to be used to represent the gain of the lead compensator.
         The default symbol is the predefined symbol `K` from the
         `python_control` package.
@@ -1078,7 +1097,7 @@ def design_lag_lead_feedback(
         zero).
     name:
         Optional name to identify the lag-lead compensated system.
-    gain_symbol:
+    gain_symbol: optional
         Sympy symbol to be used to represent the gain of the lag-lead
         compensator. The default symbol is the predefined symbol `K` from the
         `python_control` package.

@@ -28,7 +28,6 @@ from .root_locus import TransferFunctionVector, RootLocus, pole_sensitivity
 from .frequency_response import (
     FrequencyResponse,
     plot_bode_diagrams,
-    ClosedLoopFrequencyResponse,
     ClosedLoopTransientResponse
 )
 
